@@ -1,6 +1,13 @@
-# This script provides data input for the resilience indicator multihazard model for the Philippines, Fiji, Sri Lanka, and Malawi. 
+############################################################3######
+# Provides inputs for the resilience indicator multihazard model  #
+# Restructured from the global model                              #
+# This script should be run after gather_data.py                  #
+# To run, from console, specify country: python gather_data.py RO #
+#                                                                 #
+# Originally developed by Jinqiang Chen and Brian Walsh           #
+# Modified by A.Jaycocks, February 2020                           #
+###################################################################
 
-# Restructured from the global model and developed by Jinqiang Chen and Brian Walsh
 
 # Compiler/Python interface (Magic)
 #from IPython import get_ipython

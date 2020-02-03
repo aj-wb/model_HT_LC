@@ -1,3 +1,10 @@
+########################################################
+# Computes Resilience and Risk Analytics               #
+# This script should be run after gather_data.py       #
+# To run, from console, specify country and debug mode #
+#    EX: python compute resilience_and_risk.py RO True #
+########################################################
+
 import matplotlib
 matplotlib.use('AGG')
 
@@ -25,8 +32,11 @@ def launch_compute_resilience_and_risk_thread(myCountry,pol_str='',optionPDS='no
     warnings.filterwarnings('always',category=UserWarning)
 
     # Setup directories
-    output       = model+'/../output_country/'+myCountry+'/'
-    intermediate = model+'/../intermediate/'+myCountry+'/'
+    #output       = model+'/../output_country/'+myCountry+'/'
+    #intermediate = model+'/../intermediate/'+myCountry+'/'
+    output = '/Users/jaycocks/Projects/wb_resilience/output_country/' + myCountry + '/'
+    intermediate = '/Users/jaycocks/Projects/wb_resilience/intermediate/' + myCountry + '/'
+
     if not os.path.exists(output):
         os.makedirs(output)
         
@@ -179,8 +189,8 @@ def launch_compute_resilience_and_risk_thread(myCountry,pol_str='',optionPDS='no
 
 if __name__ == '__main__':
 
-    myCountry = 'SL'
-    global debug; debug = False
+    myCountry = 'RO'
+    global debug; debug = True
     special_event = None
 
     if len(sys.argv) > 1: myCountry = sys.argv[1]

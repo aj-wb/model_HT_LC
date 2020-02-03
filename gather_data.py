@@ -45,7 +45,7 @@ warnings.filterwarnings('always',category=UserWarning)
 #
 if len(sys.argv) >= 2: myCountry = sys.argv[1]
 else:
-    myCountry = 'BO'
+    myCountry = 'RO'
     print('Setting country to BO. Currently implemented: MW, PH, FJ, SL, BO')
 
 #####################################
@@ -123,12 +123,12 @@ except: pass
 
 ########################################
 # Calculate regional averages from household info
-df['gdp_pc_prov'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum(level=economy)/cat_info['pcwgt'].sum(level=economy)
+#df['gdp_pc_prov'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum(level=economy)/cat_info['pcwgt'].sum(level=economy)
 # ^ per capita income (in local currency), regional average
-df['gdp_pc_nat'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum()/cat_info['pcwgt'].sum()
+#df['gdp_pc_nat'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum()/cat_info['pcwgt'].sum()
 # ^ this is per capita income (local currency), national average
 
-df['pop'] = cat_info.pcwgt.sum(level=economy)
+#df['pop'] = cat_info.pcwgt.sum(level=economy)
 # ^ regional population
 
 try: df['pct_diff'] = 100.*(df['psa_pop']-df['pop'])/df['pop']
@@ -603,7 +603,7 @@ if myCountry != 'SL' and myCountry != 'BO' and not special_event:
     hazard_ratios = hazard_ratios.fillna(0)
 
 hazard_ratios = hazard_ratios.append(hazard_ratios_drought).fillna(0)
-hazard_ratios[[_ for _ in ['fa','v_mean','fa_ag','v_ag_mean'] if _ in hazard_ratios.columns]].mean(level=event_level).to_csv('tmp/fa_v.csv')
+#hazard_ratios[[_ for _ in ['fa','v_mean','fa_ag','v_ag_mean'] if _ in hazard_ratios.columns]].mean(level=event_level).to_csv('tmp/fa_v.csv')
 
 # check
 #hazard_renorm = pd.DataFrame({'total_k':hazard_ratios[['k','pcwgt']].prod(axis=1),

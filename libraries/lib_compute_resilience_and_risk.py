@@ -1,4 +1,13 @@
-#modified version from lib_compute_resilience_and_risk_financing.py
+######################################################################
+# Primary library used in compute_resilience_and_risk.py             #
+# A modified version of lib_compute_resilience_and_risk_financing.py #
+######################################################################
+
+######################################################################
+# Import libraries                                                   #
+# Please use the following versions for:                             #
+# Pandas 0.22.0, Numpy 1.12.1, Scipy 1.0.0                           #
+######################################################################
 import matplotlib
 matplotlib.use('AGG')
 
@@ -20,6 +29,14 @@ from libraries.lib_fiji_sps import run_fijian_SPP, run_fijian_SPS
 from libraries.pandas_helper import get_list_of_index_names, broadcast_simple, concat_categories
 from libraries.lib_country_dir import get_to_USD, get_subsistence_line, average_over_rp, average_over_rp1, get_all_hazards
 
+######################################################################
+# User settings                                                      #
+# if you want temporary output saved for inspection or debugging     #
+# Create a folder on your computer and specify directory here        #
+######################################################################
+# todo this should be global and sent outside of the lib
+tmp = './tmp/'
+
 pd.set_option('display.width', 220)
 
 sns_pal = sns.color_palette('Set1', n_colors=8, desat=.5)
@@ -28,7 +45,11 @@ q_colors = [sns_pal[0],sns_pal[1],sns_pal[2],sns_pal[3],sns_pal[5]]
 const_nom_reco_rate, const_pub_reco_rate = None, None
 const_rho, const_ie = None, None
 
-tmp = './tmp/'
+######################################################################
+# Functions                                                          #
+# if you want temporary output saved for inspection or debugging     #
+# Create a folder on your computer and specify directory here        #
+######################################################################
 
 def get_weighted_mean(q1,q2,q3,q4,q5,key,weight_key='pcwgt'):
 
@@ -372,8 +393,8 @@ def compute_dK(pol_str,macro_event,cats_event,event_level,affected_cats,myC,opti
     # --> 'hh_share' recovers fraction that is private property
 
     cats_event_ia['dk_private'] = cats_event_ia[['k','v_with_ew','hh_share']].prod(axis=1, skipna=False).fillna(0).astype('int')
-    cats_event_ia['dk_public']  = (cats_event_ia[['k','v_with_ew']].prod(axis=1, skipna=False)*(1-cats_event_ia['hh_share'])).fillna(0).clip(lower=0.).astype('int')
-    cats_event_ia['dk_other']   = 0.
+    cats_event_ia['dk_public'] = (cats_event_ia[['k','v_with_ew']].prod(axis=1, skipna=False)*(1-cats_event_ia['hh_share'])).fillna(0).clip(lower=0.).astype('int')
+    cats_event_ia['dk_other'] = 0.
     #cats_event_ia['dk_public']  = cats_event_ia[['k','public_loss_v']].prod(axis=1, skipna=False)
     # ^ this was FJ; it's buggy -> results in dk > k0
 
@@ -405,9 +426,9 @@ def compute_dK(pol_str,macro_event,cats_event,event_level,affected_cats,myC,opti
 
         # Total value of public & private asset losses, when an event hits a single province
         rebuild_fees['dk_private_tot'] = rebuild_fees[['pcwgt','dk_private']].prod(axis=1).sum(level=event_level)
-        rebuild_fees['dk_public_tot']  = rebuild_fees[['pcwgt', 'dk_public']].prod(axis=1).sum(level=event_level)
-        rebuild_fees['dk_other_tot']   = rebuild_fees[['pcwgt',  'dk_other']].prod(axis=1).sum(level=event_level)
-        rebuild_fees['dk_tot']         = rebuild_fees[['dk_private_tot','dk_public_tot','dk_other_tot']].sum(axis=1)
+        rebuild_fees['dk_public_tot'] = rebuild_fees[['pcwgt', 'dk_public']].prod(axis=1).sum(level=event_level)
+        rebuild_fees['dk_other_tot'] = rebuild_fees[['pcwgt',  'dk_other']].prod(axis=1).sum(level=event_level)
+        rebuild_fees['dk_tot'] = rebuild_fees[['dk_private_tot','dk_public_tot','dk_other_tot']].sum(axis=1)
 
         #######################################################
         # Now we have dk (private, public, other)
@@ -496,7 +517,7 @@ def compute_dK(pol_str,macro_event,cats_event,event_level,affected_cats,myC,opti
         # Sanity check: (C-di) does not bankrupt
         _ = cats_event_ia.loc[(cats_event_ia.c-cats_event_ia.di0)<0]
         if _.shape[0] != 0:
-            _.to_csv(tmp+'bankrupt.csv')
+            #_.to_csv(tmp+'bankrupt.csv')
             assert(_.shape[0] == 0)
 
         # Leaving out all terms without time-dependence
@@ -775,12 +796,11 @@ def calculate_response(myCountry,pol_str,macro_event,cats_event_ia,public_costs,
 
     # Baseline case (no insurance):
     cats_event_iah['help_received'] = 0
-    cats_event_iah['help_fee'] =0
+    cats_event_iah['help_fee'] = 0
 
     macro_event, cats_event_iah, public_costs = compute_response(myCountry, pol_str,macro_event, cats_event_iah, public_costs,
                                                                  event_level,default_rp,option_CB,optionT=optionT,optionPDS=optionPDS,
-                                                                 optionB=optionB, optionFee=optionFee, fraction_inside=fraction_inside,
-                                                                 loss_measure = loss_measure)
+                                                                 optionB=optionB, optionFee=optionFee, fraction_inside=fraction_inside, loss_measure=loss_measure)
 
     cats_event_iah.drop(['protection'],axis=1, inplace=True)
     return macro_event, cats_event_iah, public_costs
@@ -793,8 +813,8 @@ def compute_response(myCountry, pol_str, macro_event, cats_event_iah,public_cost
     # --> including losses and PDS options on targeting, financing, and dimensioning of the help.
     # --> Returns copies of macro_event and cats_event_iah updated with stuff
 
-    #macro_event    = macro_event.copy()
-    #cats_event_iah = cats_event_iah.copy()
+    #macro_event    = macro_event.copy() #todo remove comment here - add back should not be run
+    #cats_event_iah = cats_event_iah.copy() #todo remove comment here - add back should not be run
 
     macro_event['fa'] = (cats_event_iah.loc[(cats_event_iah.affected_cat=='a'),'pcwgt'].sum(level=event_level)/(cats_event_iah['pcwgt'].sum(level=event_level))).fillna(1E-8)
     # No factor of 2 in denominator affected households are counted twice in both the num & denom
@@ -909,20 +929,27 @@ def compute_response(myCountry, pol_str, macro_event, cats_event_iah,public_cost
         #if not 'has_received_help_from_PDS_cat' in cats_event_iah.columns: print('pds = prod with additional criteria not implemented')
         #else: print('pds = prod with additional criteria not implemented')
 
-        if optionPDS=='prop_q1':
-            cats_event_iah.loc[(cats_event_iah.helped_cat=='helped')&(cats_event_iah.quintile==1),'help_received']= 0.5*cats_event_iah.loc[(cats_event_iah.helped_cat=='helped'),loss_measure]
+        if optionPDS == 'prop_q1':
+            cats_event_iah.loc[(cats_event_iah.helped_cat == 'helped') & (cats_event_iah.quintile==1),'help_received']= 0.5*cats_event_iah.loc[(cats_event_iah.helped_cat=='helped'),loss_measure]
 
-        if optionPDS=='prop_q12':
-            cats_event_iah.loc[(cats_event_iah.helped_cat=='helped')&(cats_event_iah.quintile<=2),'help_received']= 0.5*cats_event_iah.loc[(cats_event_iah.helped_cat=='helped'),loss_measure]
+        if optionPDS == 'prop_q12':
+            cats_event_iah.loc[(cats_event_iah.helped_cat == 'helped') & (cats_event_iah.quintile<=2),'help_received']= 0.5*cats_event_iah.loc[(cats_event_iah.helped_cat=='helped'),loss_measure]
 
-        cats_event_iah = cats_event_iah.reset_index(['hhid','affected_cat'],drop=False)
+        cats_event_iah = cats_event_iah.reset_index(['hhid', 'affected_cat'], drop=False)
 
     #######################################
     # Save out info on the costs of these policies
+    from scipy.sparse import csr_matrix #todo AJ - traceback about sparse data added this import
     my_sp_costs = pd.DataFrame({'event_cost':cats_event_iah[['help_received','pcwgt']].prod(axis=1).sum(level=event_level)},index=cats_event_iah.sum(level=event_level).index)
+    n_enrolled_test = cats_event_iah.loc[cats_event_iah['help_received'] != 0, 'pcwgt'].sum(level=event_level)
+    reg_frac_enrolled_test = 100. * cats_event_iah.loc[cats_event_iah['help_received'] != 0, 'pcwgt'].sum(
+        level=event_level) / cats_event_iah['pcwgt'].sum(level=event_level)
+    #todo: cats_event_iah['help_received'] are ALL zero
+    # so reg_frac_enrolled is nan and n_nrolled is empty
+    # make sure to remove *_test variables
     my_sp_costs['n_enrolled'] = cats_event_iah.loc[cats_event_iah['help_received']!=0,'pcwgt'].sum(level=event_level)
     my_sp_costs['reg_frac_enrolled'] = 100.*cats_event_iah.loc[cats_event_iah['help_received']!=0,'pcwgt'].sum(level=event_level)/cats_event_iah['pcwgt'].sum(level=event_level)
-    my_sp_costs=my_sp_costs.reset_index('rp')
+    my_sp_costs = my_sp_costs.reset_index('rp')
     my_sp_costs['avg_admin_cost'],_ = average_over_rp(my_sp_costs.reset_index().set_index(event_level)['event_cost'])
 
     print('SP: avg national costs:',my_sp_costs['avg_admin_cost'].mean(level=[event_level[0],event_level[1]]).sum())
@@ -943,6 +970,8 @@ def compute_response(myCountry, pol_str, macro_event, cats_event_iah,public_cost
 
     # Already did all the work for this in determining dk_public
     public_costs = public_costs.drop([i for i in public_costs.columns if i not in ['contributer','frac_k_BE','frac_k_PE']], axis=1)
+
+    #todo the below are all zero
     public_costs['pds_cost'] = cats_event_iah[['help_received','pcwgt']].prod(axis=1).sum(level=event_level)
     public_costs['pds_cost'] = public_costs['pds_cost'].fillna(0)
 
@@ -950,6 +979,7 @@ def compute_response(myCountry, pol_str, macro_event, cats_event_iah,public_cost
     public_costs['transfer_pds_PE'] = public_costs[['pds_cost','frac_k_PE']].prod(axis=1)
 
     # Uncomment this line for tax assessment before disaster
+    #todo pc_fee is removed about 951
     public_costs = public_costs.rename(columns={'transfer_pds_BE':'transfer_pds','pc_fee_BE':'pc_fee'})
     # Uncomment this line for tax assessment after disaster
     #public_costs = public_costs.rename(columns={'transfer_pds_PE':'transfer_pds'})
@@ -968,7 +998,9 @@ def compute_response(myCountry, pol_str, macro_event, cats_event_iah,public_cost
 
             cats_event_iah = pd.merge(cats_event_iah.reset_index(),(cats_event_iah[['help_received','pcwgt']].prod(axis=1).sum(level=['hazard','rp'])).reset_index(),on=['hazard','rp'])
             cats_event_iah = cats_event_iah.reset_index().set_index(event_level)
-            cats_event_iah = cats_event_iah.rename(columns={0:'totex'}).drop(['index','level_0'],axis=1)
+            #todo figure out level_0
+            #cats_event_iah = cats_event_iah.rename(columns={0:'totex'}).drop(['index','level_0'],axis=1)
+            cats_event_iah = cats_event_iah.rename(columns={0: 'totex'}).drop(['index'], axis=1)
             ## ^ total expenditure
 
             cats_event_iah = pd.merge(cats_event_iah.reset_index(),(cats_event_iah[['k','pcwgt']].prod(axis=1).sum(level=['hazard','rp'])).reset_index(),on=['hazard','rp'])
@@ -1243,7 +1275,7 @@ def calc_delta_welfare(myC, temp, macro, pol_str,optionPDS,study=False):
 
     temp_na['dc_t'] = 0.
 
-    temp_na.head(10).to_csv(tmp+'temp_na.csv')
+    #temp_na.head(10).to_csv(tmp+'temp_na.csv')
     # Will re-merge temp_na with temp at the bottom...trying to optimize here!
 
     #############################
@@ -1378,7 +1410,9 @@ def calc_delta_welfare(myC, temp, macro, pol_str,optionPDS,study=False):
         macro.loc[(macro['frac_recovered_t']>=0.90)&(macro['time_recovery_90'] == 10),'time_recovery_90'] = _t
         macro.loc[(macro['frac_recovered_t']>=0.95)&(macro['time_recovery_95'] == 10),'time_recovery_95'] = _t
 
+        #todo figure out level_0
         temp = temp.reset_index().drop([i for i in ['index','level_0'] if i in temp.columns],axis=1)
+        #temp = temp.reset_index().drop([i for i in ['index'] if i in temp.columns], axis=1)
 
         # BELOW: this is value of dc at time _t (duration = step_dt), assuming no savings
         temp['di_prv_t'].update(temp.eval('dk_prv_t*@my_avg_prod_k*(1-@my_tau_tax) + pcsoc*scale_fac_soc').round(2))
@@ -1468,7 +1502,7 @@ def calc_delta_welfare(myC, temp, macro, pol_str,optionPDS,study=False):
         savings_check = '(sav_i>0.)&(sav_f+0.01<0.)'
         if temp.loc[temp.eval(savings_check)].shape[0] != 0:
             print('Some hh overdraft their savings!')
-            temp.loc[temp.eval(savings_check)].to_csv(tmp+'bug_negative_savings_'+str(counter)+'.csv')
+            #temp.loc[temp.eval(savings_check)].to_csv(tmp+'bug_negative_savings_'+str(counter)+'.csv')
             #assert(False)
 
         ########################
@@ -1503,11 +1537,11 @@ def calc_delta_welfare(myC, temp, macro, pol_str,optionPDS,study=False):
         # Sanity check: dk_prv_t should not be higher than dk_private (initial value)
         if temp.loc[(temp.dk_prv_t>temp.dk_private+0.01)].shape[0] > 0:
             print('Some hh lose more at the end than in the disaster!')
-            temp.loc[(temp.dk_prv_t>temp.dk_private+0.01)].to_csv(tmp+'bug_ghost_losses'+optionPDS+'_'+str(counter)+'.csv')
+            #temp.loc[(temp.dk_prv_t>temp.dk_private+0.01)].to_csv(tmp+'bug_ghost_losses'+optionPDS+'_'+str(counter)+'.csv')
             #assert(False)
 
         # Save out the files for debugging
-        if ((counter<=10) or (counter%50 == 0)): temp.head(200).to_csv(tmp+'temp_'+optionPDS+pol_str+'_'+str(counter)+'.csv')
+        #if ((counter<=10) or (counter%50 == 0)): temp.head(200).to_csv(tmp+'temp_'+optionPDS+pol_str+'_'+str(counter)+'.csv')
 
         counter+=1
         gc.collect()
@@ -1557,7 +1591,7 @@ def calc_delta_welfare(myC, temp, macro, pol_str,optionPDS,study=False):
 
     print('Applying upper limit for dw = ',round(my_dw_limit,0))
     temp['dw_tot'] = temp[['dw_curr','pcwgt']].prod(axis=1)
-    temp.loc[(temp.pcwgt!=0)&(temp.dw_curr==my_dw_limit)].to_csv(tmp+'my_late_excess'+optionPDS+'.csv')
+    #temp.loc[(temp.pcwgt!=0)&(temp.dw_curr==my_dw_limit)].to_csv(tmp+'my_late_excess'+optionPDS+'.csv')
 
     print('\n ('+optionPDS+' Total well-being losses ('+pol_str+'):',temp[['dw_curr_no_clip','pcwgt']].prod(axis=1).sum(level=[i for i in mac_ix])/1.E6)
 

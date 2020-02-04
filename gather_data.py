@@ -1,4 +1,4 @@
-############################################################3######
+###################################################################
 # Provides inputs for the resilience indicator multihazard model  #
 # Restructured from the global model                              #
 # This script should be run after gather_data.py                  #

@@ -90,12 +90,12 @@ def launch_compute_resilience_and_risk_thread(myCountry,pol_str='',optionPDS='no
     share_public_assets = True
     if pol_str == 'noPT': share_public_assets = False
 
-    #read data
+    # read data
     macro = pd.read_csv(intermediate+'macro'+('_'+special_event if special_event is not None else '')+'.csv', index_col=economy)
     cat_info = pd.read_csv(intermediate+'cat_info'+('_'+special_event if special_event is not None else '')+'.csv',  index_col=[economy, income_cats])
 
-    #calc_delta_welfare(None,None,'','no',study=True)
-    #assert(False)
+    # calc_delta_welfare(None,None,'','no',study=True)
+    # assert(False)
 
     # First function: compute_with_hazard_ratios
     # --> This is a shell that loads hazard_ratios, then calls process_input
@@ -107,11 +107,11 @@ def launch_compute_resilience_and_risk_thread(myCountry,pol_str='',optionPDS='no
                                                                               intermediate+'hazard_ratios'+('_'+special_event if special_event is not None else '')+'.csv',
                                                                               macro,cat_info,economy,event_level,income_cats,
                                                                               default_rp,rm_overlap=False,verbose_replace=True)
-    hazard_ratios_drought = load_drought_hazard(myCountry,intermediate+'hazard_ratios'+('_'+special_event if special_event is not None else '')+'.csv',event_level,income_cats) 
+    hazard_ratios_drought = load_drought_hazard(myCountry, intermediate+'hazard_ratios'+('_'+special_event if special_event is not None else '')+'.csv',event_level,income_cats)
 
     gc.collect()
     print('A')
-    #verbose_replace=True by default, replace common columns in macro_event and cats_event with those in hazard_ratios_event
+    # verbose_replace=True by default, replace common columns in macro_event and cats_event with those in hazard_ratios_event
 
     # compute_dK does the following:
     # -- adds dk_event column to macro_event
@@ -200,7 +200,6 @@ if __name__ == '__main__':
     if myCountry == 'PH':
         pds_str = ['no','unif_poor']#,'prop','unif_poor_only','prop_q1']
         pol_str = ['']
-
 
     elif myCountry == 'FJ':
             pds_str = ['no','unif_poor',

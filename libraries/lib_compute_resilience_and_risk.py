@@ -18,7 +18,6 @@ import pickle
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import matplotlib.pyplot as plt
 
 from scipy.interpolate import interp1d
 from libraries.lib_agents import smart_savers
@@ -485,7 +484,7 @@ def compute_dK(pol_str,macro_event,cats_event,event_level,affected_cats,myC,opti
         print(rebuild_fees[['hh_fee_PE','frac_k_PE']].sum(level=event_level).head(17))
 
         public_costs = distribute_public_costs(macro_event,rebuild_fees,event_level,'dk_public')
-        #public_costs.to_csv('../output_country/'+myC+'/intermediate_public_costs_'+optionPDS+'.csv')
+        public_costs.to_csv('../output_country/'+myC+'/intermediate_public_costs_'+optionPDS+'.csv')
 
         ############################
         # Choose whether to assess tax on k (BE='before event') or (PE='post event')
@@ -813,8 +812,8 @@ def compute_response(myCountry, pol_str, macro_event, cats_event_iah,public_cost
     # --> including losses and PDS options on targeting, financing, and dimensioning of the help.
     # --> Returns copies of macro_event and cats_event_iah updated with stuff
 
-    #macro_event    = macro_event.copy() #todo remove comment here - add back should not be run
-    #cats_event_iah = cats_event_iah.copy() #todo remove comment here - add back should not be run
+    #macro_event    = macro_event.copy()
+    #cats_event_iah = cats_event_iah.copy()
 
     macro_event['fa'] = (cats_event_iah.loc[(cats_event_iah.affected_cat=='a'),'pcwgt'].sum(level=event_level)/(cats_event_iah['pcwgt'].sum(level=event_level))).fillna(1E-8)
     # No factor of 2 in denominator affected households are counted twice in both the num & denom

@@ -8,12 +8,7 @@
 import matplotlib
 matplotlib.use('AGG')
 
-import gc
 import sys
-import os, time
-import warnings
-import numpy as np
-import pandas as pd
 
 from libraries.lib_country_dir import *
 from libraries.replace_with_warning import *

@@ -1,24 +1,28 @@
-###################################################################
-# Provides inputs for the resilience indicator multihazard model  #
-# Restructured from the global model                              #
-# This script should be run after gather_data.py                  #
-# To run, from console, specify country: python gather_data.py RO #
-#                                                                 #
-# Originally developed by Jinqiang Chen and Brian Walsh           #
-# Modified by A.Jaycocks, February 2020                           #
-###################################################################
+#####################################################################
+# Provides inputs for the resilience indicator multihazard model    #
+# Restructured from the global model                                #
+# This script should be run after gather_data.py                    #
+# To run, from console, specify country: python gather_data.py RO   #
+#                                                                   #
+# Originally developed by Jinqiang Chen and Brian Walsh             #
+# Modified by A.Jaycocks, February 2020                             #
+#####################################################################
 
-
-# Compiler/Python interface (Magic)
+#####################################################################
+# Compiler/Python interface (Magic). If you use iPython uncomment   #
+#####################################################################
 #from IPython import get_ipython
 #get_ipython().magic('reset -f')
 #get_ipython().magic('load_ext autoreload')
 #get_ipython().magic('autoreload 2')
 
-# Import packages for data analysis
-import matplotlib.pyplot as plt
+#####################################################################
+# Compiler/Python interface (Magic). If you use iPython uncomment   #
+# In the local libraries, lib_country_dir is the most important     #
+#####################################################################
 import numpy as np
 import pandas as pd
+import os
 from pandas import isnull
 import os, time
 import warnings
@@ -38,22 +42,23 @@ from special_events.cyclone_idai_mw import get_idai_loss
 from libraries.lib_drought import get_agricultural_vulnerability_to_drought, get_ag_value
 warnings.filterwarnings('always',category=UserWarning)
 
-#####################################
-# Which country are we running over?
+#####################################################################
+# Which country are we running over?                                #
+# Can set this in command line using the first <sys.argv> argument  #
+# Set the country in the else statement if in debug mode            #
+# Otherwise pass an argument, <myCountry> in the "else:" loop       #
+# <myCountry> is a two-letter code corresponding to the directories #
+# BO = Bolivia, FJ = Fiji, HT = Haiti, JM = Jamaica, MW = Malawi,   #
+# PH = Philippines, RO = Romania, LC = Saint Lucia, SL = Sri Lanka  #
+#####################################################################
 
-# --> This variable <sys.argv> is the first optional argument on the command line
-# --> If you can't pass an argument, set <myCountry> in the "else:" loop equal to your country:
-#
-# --> BO = Bolivia
-# or  FJ = Fiji 
-# or  MW = Malawi
-# or  PH = Philippines
-# or  SL = Sri Lanka
-#
 if len(sys.argv) >= 2: myCountry = sys.argv[1]
 else:
     myCountry = 'RO'
-    print('Setting country to BO. Currently implemented: MW, PH, FJ, SL, BO')
+    #myCountry = 'HT'
+    print('Setting country to {myCtry_used}. '
+          'Currently implemented: Fiji = FJ, Malawi = MW, Philippines = PH, Fiji = FJ, Sri Lanka = SL, Bolivia = BO, '
+          'Romania = RO, Haiti = HT, SaintLucia = SL, Jamaica = JM'.format(myCtry_used = myCountry))
 
 #####################################
 # Primary library used is lib_country_dir.py
@@ -146,6 +151,7 @@ except: pass
 ########################################
 ########################################
 # Asset vulnerability
+# Based upon construction materials
 print('Getting vulnerabilities')
 
 vul_curve = get_vul_curve(myCountry,'wall')

@@ -40,7 +40,7 @@ mpl.rcParams['legend.facecolor'] = 'white'
 import warnings
 warnings.filterwarnings('always',category=UserWarning)
 
-myCountry = 'SL'
+myCountry = 'RO'
 if len(sys.argv) >= 2: myCountry = sys.argv[1]
 print('Running '+myCountry)
 
@@ -280,7 +280,8 @@ for iPDS in ['no']+pds_options:
     iah_out['Well-being risk'+(' '+iPDS).replace(' '+base_str,'')] = iah_avg[['dw_'+iPDS,'pcwgt_'+iPDS]].prod(axis=1).sum(level=[economy,'hazard','rp']) 
 
     # Add public well-being costs to this output & update resilience
-    _pc = pd.read_csv(out_files+'public_costs_tax_'+_pds+'_.csv').set_index([economy,'hazard','rp'])
+    _pc = pd.read_csv(out_files + 'public_costs_tax_' + _pds + '_.csv').set_index([economy, 'hazard', 'rp'])
+
     _pc['dw_tot_curr'] = _pc.eval('(dw_pub+dw_soc)/@_wprime')
     _pc_sum = _pc.loc[_pc['contributer']!=_pc.index.get_level_values(event_level[0]),['dw_tot_curr']].sum(level=[economy,'hazard','rp'])
 

@@ -26,7 +26,8 @@ def get_svg_file(myC):
     elif myC == 'SL': svg_file = '../map_files/'+myC+'/lk.svg'
     elif myC == 'MW': svg_file = '../map_files/'+myC+'/mw.svg'
     else:
-        try: svg_file = '../map_files/'+myC+'/'+myC.lower()+'.svg'
+        #try: svg_file = '../map_files/'+myC+'/'+myC.lower()+'.svg'
+        try: svg_file = '/Users/jaycocks/Projects/wb_resilience/map_files/RO/ro.svg'
         except: 
             print('cannot find map file!')
             assert(False)
@@ -85,7 +86,8 @@ def make_map_from_svg(series_in, svg_file_path, outname, color_maper=plt.cm.get_
 
     #read input 
     with open(svg_file_path, 'r',encoding='utf8') as svgfile: #MIND UTF8
-        soup=BeautifulSoup(svgfile.read(),"xml")
+        #soup=BeautifulSoup(svgfile.read(),"xml")
+        soup = BeautifulSoup(svgfile.read(), "lxml")
         print(type(soup))
 
     #names of regions to lower case without space   

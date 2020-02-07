@@ -21,6 +21,7 @@ affected_cats = pd.Index(['a', 'na'], name='affected_cat') # categories for soci
 helped_cats   = pd.Index(['helped','not_helped'], name='helped_cat')
 
 # These parameters could vary by country
+#todo move this to an input file and create a fx that reads this in
 reconstruction_time = 3.00 # time needed for reconstruction
 reduction_vul       = 0.20 # how much early warning reduces vulnerability
 inc_elast           = 1.50 # income elasticity (of capital?)
@@ -67,6 +68,7 @@ def get_economic_unit(myC):
     if myC == 'MW': return 'district'
     if myC == 'RO': return 'Region'
     if myC == 'BO': return 'departamento'
+    if myC == 'HT': return 'province'
     assert(False)
 
 def get_currency(myC):

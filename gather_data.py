@@ -58,32 +58,41 @@ warnings.filterwarnings('always',category=UserWarning)
 
 if len(sys.argv) >= 2: myCountry = sys.argv[1]
 else:
-    myCountry = 'RO'
+    #myCountry = 'RO'
     myCountry = 'HT'
-    print('Setting country to {myCtry_used}. '
-          'Currently implemented: Fiji = FJ, Malawi = MW, Philippines = PH, Fiji = FJ, Sri Lanka = SL, Bolivia = BO, '
-          'Romania = RO, Haiti = HT, SaintLucia = SL, Jamaica = JM'.format(myCtry_used = myCountry))
+    print('Setting country to ' + myCountry + '. Currently implemented for the following countries: '
+                                              'Fiji = FJ, Malawi = MW, Philippines = PH, Fiji = FJ, Sri Lanka = SL, '
+                                              'Bolivia = BO, Romania = RO, Haiti = HT, SaintLucia = SL, Jamaica = JM')
 
-#####################################
-# Primary library used is lib_country_dir.py
+#####################################################################
+# Set-up directories/tell code where to look for inputs             #
+# Specify where to save outputs                                     #
+# Set the unit for analysis between HH data and Hazard data         #
+# From local libraries, lib_country_dir is the most important here  #
+#####################################################################
 
-# Set up directories/tell code where to look for inputs & where to save outputs
+# Set directories
 # A key output of this is the population
 intermediate = set_directories(myCountry)
 
-# Administrative unit (eg region or province)
+# Administrative unit (eg region or province) - two levels
+# Later the region is called region_code and prov_code
+# The province is an aggregate of the regions
 economy = get_economic_unit(myCountry)
 
 # Levels of index at which one event happens
 event_level = [economy, 'hazard', 'rp']
 
-#Country dictionaries
-# df = state/province names
+# Country dictionaries
+# Uses the hh survey data to get population by economy (the level of spatial resolution desired)
+# index will be the economy as numeric with one column that is the population
+
 df = get_places(myCountry)
 prov_code,region_code = get_places_dict(myCountry)
 
-###Define parameters, all coming from lib_country_dir
-df['avg_prod_k']             = get_avg_prod(myCountry) # average productivity of capital, value from the global resilience model
+# Define parameters, all coming from lib_country_dir
+#todo add a file to read these in from a file
+df['avg_prod_k']             = get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
 df['shareable']              = nominal_asset_loss_covered_by_PDS # target of asset losses to be covered by scale up
 df['T_rebuild_K']            = reconstruction_time     # Reconstruction time
 df['income_elast']           = inc_elast               # income elasticity

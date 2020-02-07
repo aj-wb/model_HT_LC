@@ -16,6 +16,7 @@ sns_pal = sns.color_palette('Set1', n_colors=8, desat=.5)
 global model_
 model = os.getcwd()
 
+
 # People/hh will be affected or not_affected, and helped or not_helped
 affected_cats = pd.Index(['a', 'na'], name='affected_cat') # categories for social protection
 helped_cats   = pd.Index(['helped','not_helped'], name='helped_cat')
@@ -27,11 +28,6 @@ reduction_vul       = 0.20 # how much early warning reduces vulnerability
 inc_elast           = 1.50 # income elasticity (of capital?)
 max_support         = 0.05 # max expenditure on PDS as fraction of GDP (set to 5% based on PHL)
 nominal_asset_loss_covered_by_PDS = 0.80 # also, elsewhere, called 'shareable'
-
-# Dictionary for standardizing HIES column names that is SPECIFIC TO ROMANIA
-hbs_dict = {'regiune':'Region','judet':'County','codla':'hhcode','coefj':'hhwgt','cpers':'hhsize','R44':'hhinc',
-            'REGIUNE':'Region','JUDET':'County','CODLA':'hhcode','COEFJ':'hhwgt','CPERS':'hhsize',
-            'NRGL':'nrgl','MEDIU':'mediu','CENTRA':'centra'}
 
 # Define directories
 def set_directories(myCountry):  # get current directory
@@ -47,12 +43,16 @@ def set_directories(myCountry):  # get current directory
     str
         intermediates relative folder path
     """
+
     global inputs, intermediate
-    inputs        = model+'/../inputs/'+myCountry+'/'       # get inputs data directory
-    intermediate  = model+'/../intermediate/'+myCountry+'/' # get outputs data directory
+    inputs        = model+'/inputs/'+myCountry+'/'       # get inputs data directory
+    intermediate  = model+'/intermediate/'+myCountry+'/' # get outputs data directory
 
-    # If the depository directories don't exist, create one:
+    if model[-5:] == 'model':
+        inputs = model[:-6] + '/inputs/' + myCountry + '/'  # get inputs data directory
+        intermediate = model[:-6] + '/intermediate/' + myCountry + '/'  # get outputs data directory
 
+    # If the repository directories above don't exist, create one:
     if not os.path.exists(inputs):
         print('You need to put the country survey files in a directory titled ','/inputs/'+myCountry+'/')
         assert(False)
@@ -68,7 +68,7 @@ def get_economic_unit(myC):
     if myC == 'MW': return 'district'
     if myC == 'RO': return 'Region'
     if myC == 'BO': return 'departamento'
-    if myC == 'HT': return 'province'
+    if myC == 'HT': return 'region_est2' #this is admin1 10 areas and will be the prov_code
     assert(False)
 
 def get_currency(myC):
@@ -138,6 +138,12 @@ def get_places(myC):
         RO_hhid = get_hhid_elements(myC)
         # nrgl	= Order number of the household within the place of residence
 
+        # Dictionary for standardizing HIES column names that is SPECIFIC TO ROMANIA
+        hbs_dict = {'regiune': 'Region', 'judet': 'County', 'codla': 'hhcode', 'coefj': 'hhwgt', 'cpers': 'hhsize',
+                    'R44': 'hhinc',
+                    'REGIUNE': 'Region', 'JUDET': 'County', 'CODLA': 'hhcode', 'COEFJ': 'hhwgt', 'CPERS': 'hhsize',
+                    'NRGL': 'nrgl', 'MEDIU': 'mediu', 'CENTRA': 'centra'}
+
         # Load df0 <- this is going to me the master index of households in RO
         hbs_str = inputs+'ROU_2016_HBS_v01_M/Data/Stata/s0.dta'
         df0 = pd.read_stata(hbs_str).rename(columns=hbs_dict)[RO_hhid+['ri','hhwgt']].set_index(RO_hhid)
@@ -168,11 +174,35 @@ def get_places(myC):
 
         assert(df.loc[df.index.duplicated(keep=False)].shape[0]==0)
 
-
         # "County" field is populated with garbage
         df = df.set_index(economy)['pcwgt'].sum(level=economy).to_frame()
         df.columns = ['pop']
 
+        return df
+
+    if myC == 'HT':
+        # with older version of pandas < 1.0 this stata will have an encoding issue.
+        # an older version of pandas seems needed to execute the code.
+        # df0 = pd.read_stata(inputs+'ALL_HT_SEDLAC.dta', encoding='ascii')
+        # instead convert in an updated version and then output
+        # economy = 'region_est2'
+        df0 = pd.read_csv(inputs+'ALL_HT_SEDLAC_dta.csv', usecols= ['id', 'pondera', 'miembros', economy])
+        #df0.drop(df0.columns.difference(['id', 'pondera', 'miembros', 'region_est1', 'region_est2', 'region_est3']), 1,
+        #         inplace=True)
+
+        # print(df0['id'].unique().value_counts())
+        # print(df0['region_est1'].value_counts()) # this is rolled up version of region_est2 (what is ued)
+        # print(df0['region_est2'].value_counts())
+
+        # this will compute the population at for each household
+        # each member of the household are replicated - take the first observation and use the hh size, miembros
+        df1 = df0.groupby('id').first().copy()
+        df1['population'] = df1['pondera'] * df1['miembros']
+        # aggregate to the economy level
+        df = df1[['population',economy]].groupby(economy).sum()
+        # reset the index names to be numeric
+        df.reset_index(inplace=True)
+        print("Total population in Haiti is: ", df.population.sum())
         return df
 
     if myC == 'PH':
@@ -318,6 +348,12 @@ def load_survey_data(myC):
         # hbs_dict defined above as Dictionary for standard column names
         # Array to recreate hhid:
         RO_hhid = get_hhid_elements(myC)
+
+        # Dictionary for standardizing HIES column names that is SPECIFIC TO ROMANIA
+        hbs_dict = {'regiune': 'Region', 'judet': 'County', 'codla': 'hhcode', 'coefj': 'hhwgt', 'cpers': 'hhsize',
+                    'R44': 'hhinc',
+                    'REGIUNE': 'Region', 'JUDET': 'County', 'CODLA': 'hhcode', 'COEFJ': 'hhwgt', 'CPERS': 'hhsize',
+                    'NRGL': 'nrgl', 'MEDIU': 'mediu', 'CENTRA': 'centra'}
 
         # LOAD: hhid, hhwgt, pcwgt, hhsize, hhsize_ae
         df_wgts = pd.read_csv(inputs+'ROU_2016_HBS_v01_M/ro_weights.csv').set_index('hhid')

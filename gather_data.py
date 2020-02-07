@@ -6,6 +6,10 @@
 #                                                                   #
 # Originally developed by Jinqiang Chen and Brian Walsh             #
 # Modified by A.Jaycocks, February 2020                             #
+#                                                                   #
+# impact of disaster is a product of exposure ("Who was affected?"),#
+# vulnerability ("How much did the affected households lose?"),     #
+# socioeconomic resilience ("What's' ability to cope and recover?") #
 #####################################################################
 
 #####################################################################
@@ -55,7 +59,7 @@ warnings.filterwarnings('always',category=UserWarning)
 if len(sys.argv) >= 2: myCountry = sys.argv[1]
 else:
     myCountry = 'RO'
-    #myCountry = 'HT'
+    myCountry = 'HT'
     print('Setting country to {myCtry_used}. '
           'Currently implemented: Fiji = FJ, Malawi = MW, Philippines = PH, Fiji = FJ, Sri Lanka = SL, Bolivia = BO, '
           'Romania = RO, Haiti = HT, SaintLucia = SL, Jamaica = JM'.format(myCtry_used = myCountry))
@@ -64,6 +68,7 @@ else:
 # Primary library used is lib_country_dir.py
 
 # Set up directories/tell code where to look for inputs & where to save outputs
+# A key output of this is the population
 intermediate = set_directories(myCountry)
 
 # Administrative unit (eg region or province)
@@ -359,14 +364,17 @@ cat_info_col = [economy,'province','hhid','region','pcwgt','aewgt','hhwgt','np',
 cat_info = cat_info.drop([i for i in cat_info.columns if (i in cat_info.columns and i not in cat_info_col)],axis=1)
 cat_info_index = cat_info.drop([i for i in cat_info.columns if i not in [economy,'hhid']],axis=1)
 
-
-#########################
-# HAZARD INFO
-special_event=None
+#####################################################################
+# Hazard Information                                                #
+#                                                                   #
+#####################################################################
+special_event = None
 #special_event = 'Idai'
 
-# SL FLAG: get_hazard_df returns two of the same flooding data, and doesn't use the landslide data that is analyzed within the function.
+# SL FLAG: get_hazard_df returns two of the same flooding data, and
+# doesn't use the landslide data that is analyzed within the function.
 df_haz,df_tikina = get_hazard_df(myCountry,economy,agg_or_occ='Agg',rm_overlap=True,special_event=special_event)
+
 if myCountry == 'FJ': _ = get_SLR_hazard(myCountry,df_tikina)
 
 # Edit & Shuffle provinces
@@ -451,7 +459,7 @@ elif (myCountry == 'FJ'
       or myCountry == 'BO'): pass
 # For FJ:
 # --> fa is losses/(exposed_value*v)
-#hazard_ratios['frac_destroyed'] = hazard_ratios['fa'] 
+# hazard_ratios['frac_destroyed'] = hazard_ratios['fa']
 
 # For SL and RO, 'fa' is fa, not frac_destroyed
 # hazard_ratios['frac_destroyed'] = hazard_ratios.pop('fa')
@@ -707,3 +715,7 @@ summary_df.to_csv(intermediate+'/gdp.csv')
 # Write out hazard ratios
 hazard_ratios= hazard_ratios.drop(['frac_destroyed','grdp_to_assets'],axis=1).drop(["flood_fluv_def"],level="hazard")
 hazard_ratios.to_csv(intermediate+'/hazard_ratios'+('_'+special_event if special_event is not None else '')+'.csv',encoding='utf-8', header=True)
+
+#############
+# Consider sanity checks here
+# Can compare

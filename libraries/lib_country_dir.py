@@ -187,8 +187,6 @@ def get_places(myC):
         # instead convert in an updated version and then output
         # economy = 'region_est2'
         df0 = pd.read_csv(inputs+'ALL_HT_SEDLAC_dta.csv', usecols= ['id', 'pondera', 'miembros', economy])
-        #df0.drop(df0.columns.difference(['id', 'pondera', 'miembros', 'region_est1', 'region_est2', 'region_est3']), 1,
-        #         inplace=True)
 
         # print(df0['id'].unique().value_counts())
         # print(df0['region_est1'].value_counts()) # this is rolled up version of region_est2 (what is ued)
@@ -200,8 +198,14 @@ def get_places(myC):
         df1['population'] = df1['pondera'] * df1['miembros']
         # aggregate to the economy level
         df = df1[['population',economy]].groupby(economy).sum()
+
+        # this will ensure the index is ordered like p_code
+        df[economy] = df.index.values
+        df.sort_values(economy, ascending=True, inplace=True)
+        df.drop([economy], axis=1, inplace=True)
         # reset the index names to be numeric
-        df.reset_index(inplace=True)
+        df.reset_index(drop=True, inplace=True)
+
         print("Total population in Haiti is: ", df.population.sum())
         return df
 
@@ -289,7 +293,7 @@ def get_places_dict(myC):
         region code as index, region names as values.
     """
 
-    p_code,r_code = None,None
+    p_code, r_code = None, None
 
     if myC == 'BO':
         economy = get_economic_unit(myC)
@@ -322,6 +326,18 @@ def get_places_dict(myC):
         r_code = pd.read_csv(inputs+'region_info.csv')[['HBS_code','Region']].set_index('HBS_code').dropna(how='all').squeeze()
         r_code.index = r_code.index.astype(int)
 
+    if myC == 'HT':
+        economy = get_economic_unit(myC) #region_est2 10 areas, region_est3 42 areas
+        df0 = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv', usecols=[economy, 'region_est3'])
+        p_code = pd.DataFrame(df0[economy].unique(), columns=[economy])
+        p_code.sort_values(economy, ascending=True, inplace=True)
+        p_code.reset_index(inplace=True, drop=True)
+        #p_code.index = p_codetemp.index.astype(int)
+
+        r_code = pd.DataFrame(df0['region_est3'].unique(), columns=['region_est3'])
+        r_code.sort_values('region_est3', ascending=True, inplace=True)
+        r_code.reset_index(inplace=True, drop=True)
+
     try: p_code = p_code.to_dict()
     except: pass
     try: r_code = r_code.to_dict()
@@ -331,7 +347,7 @@ def get_places_dict(myC):
 
 def load_survey_data(myC):
     df = None
-    #Each survey/country should have the following:
+    # This function will load the HH surveys and ensure the output df has the following:
     # -> hhid household id
     # -> hhinc household income? but seems to be expenditure (SL)
     # -> pcinc household income per person
@@ -343,6 +359,7 @@ def load_survey_data(myC):
     # -> pcsoc per person social payments
     # -> ispoor
     # -> has_ew
+
     if myC == 'RO':
 
         # hbs_dict defined above as Dictionary for standard column names
@@ -1279,8 +1296,6 @@ def load_survey_data(myC):
                         # 'hhsize_ae','gamma_SP','k','quintile','ispoor','pcinc','aeinc','pcexp','pov_line','SP_FAP','SP_CPP','SP_SPS','nOlds',
                         # 'has_ew','SP_PBS','SP_FNPF','SPP_core','SPP_add','axfin','pcsamurdhi','gsp_samurdhi','frac_remittance','N_children']
 
-
-
     # Assing weighted household consumption to quintiles within each province
     print('Finding quintiles')
     economy = df.index.names[0]
@@ -1299,7 +1314,32 @@ def load_survey_data(myC):
 
     # Last thing: however 'c' was set (income or consumption), pcsoc can't be higher than 0.99*that!
     df['pcsoc'] = df['pcsoc'].clip(upper=0.99*df['c'])
-    
+
+    if myC == 'PH':
+        # NOTE: this section moved here from GATHER_DATA.py BUT NOT TESTED
+        # Goal is to tandardize province info
+        # get_hhid_FIES(cat_info)
+        get_hhid_FIES(df)
+        cat_info = cat_info.rename(columns={'w_prov': 'province', 'w_regn': 'region'}).reset_index()
+        cat_info['province'].replace(prov_code, inplace=True)
+        cat_info['region'].replace(region_code, inplace=True)
+        cat_info = cat_info.reset_index().set_index(economy).drop(['index', 'level_0'], axis=1)
+
+        # There's no region info in df--put that in...
+        df = df.reset_index().set_index('province')
+        cat_info = cat_info.reset_index().set_index('province')
+        df['region'] = cat_info[~cat_info.index.duplicated(keep='first')].region
+
+        try:
+            df.reset_index()[['province', 'region']].to_csv('../inputs/PH/prov_to_reg_dict.csv', header=True)
+        except:
+            print('Could not update regional-provincial dict')
+
+        # Manipulate PSA (non-FIES) dataframe
+        df = df.reset_index().set_index(economy)
+        df['psa_pop'] = df.sum(level=economy)
+        df = df.mean(level=economy)
+
     return df
 
 def get_df2(myC):

@@ -88,10 +88,17 @@ event_level = [economy, 'hazard', 'rp']
 # index will be the economy as numeric with one column that is the population
 
 df = get_places(myCountry)
-prov_code,region_code = get_places_dict(myCountry)
+prov_code, region_code = get_places_dict(myCountry)
 
-# Define parameters, all coming from lib_country_dir
-#todo add a file to read these in from a file
+#####################################################################
+# Define parameters                                                 #
+# All coming from lib_country_dir, in the future should be a file   #
+#####################################################################
+# Countries will be 'protected' from events with RP < 'protection'
+# --> means that asset losses (dK) will be set to zero for these events
+df['protection'] = 1
+if myCountry == 'SL': df['protection'] = 5
+
 df['avg_prod_k']             = get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
 df['shareable']              = nominal_asset_loss_covered_by_PDS # target of asset losses to be covered by scale up
 df['T_rebuild_K']            = reconstruction_time     # Reconstruction time
@@ -102,50 +109,22 @@ df['rho']                    = 0.3*df['avg_prod_k']    # discount rate
 # ^ We have been using a constant discount rate = 0.06
 # --> BUT: this breaks the assumption that hh are in steady-state equilibrium before the hazard
 
+#####################################################################
+# Load HH Survey Data                                               #
+# A Big function loads standardized hh survey info                  #
+#####################################################################
 
-##########################
-# Countries will be 'protected' from events with RP < 'protection'
-# --> means that asset losses (dK) will be set to zero for these events
-df['protection'] = 1
-if myCountry == 'SL': df['protection'] = 5
-
-
-##########################
-# Big function loads standardized hh survey info
 cat_info = load_survey_data(myCountry)
 run_urban_plots(myCountry,cat_info.copy())
 print('Survey population:',cat_info.pcwgt.sum())
 
-#  below is messy--should be in <load_survey_data>
-if myCountry == 'PH':
-    
-    # Standardize province info
-    get_hhid_FIES(cat_info)
-    cat_info = cat_info.rename(columns={'w_prov':'province','w_regn':'region'}).reset_index()
-    cat_info['province'].replace(prov_code,inplace=True)     
-    cat_info['region'].replace(region_code,inplace=True)
-    cat_info = cat_info.reset_index().set_index(economy).drop(['index','level_0'],axis=1)
-
-    # There's no region info in df--put that in...
-    df = df.reset_index().set_index('province')
-    cat_info = cat_info.reset_index().set_index('province')
-    df['region'] = cat_info[~cat_info.index.duplicated(keep='first')].region
-
-    try: df.reset_index()[['province','region']].to_csv('../inputs/PH/prov_to_reg_dict.csv',header=True)
-    except: print('Could not update regional-provincial dict')
-
-    # Manipulate PSA (non-FIES) dataframe
-    df = df.reset_index().set_index(economy)
-    df['psa_pop'] = df.sum(level=economy)
-    df = df.mean(level=economy)
-
-cat_info = cat_info.reset_index().set_index([economy,'hhid'])
-try: cat_info = cat_info.drop('index',axis=1)
-except: pass
+cat_info = cat_info.reset_index().set_index([economy, 'hhid'])
+try:
+    cat_info = cat_info.drop('index', axis=1)
+except:
+    pass
 # Now we have a dataframe called <cat_info> with the household info.
 # Index = [economy (='region';'district'; country-dependent), hhid]
-
-
 
 ########################################
 # Calculate regional averages from household info

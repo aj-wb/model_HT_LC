@@ -56,8 +56,11 @@ warnings.filterwarnings('always',category=UserWarning)
 # PH = Philippines, RO = Romania, LC = Saint Lucia, SL = Sri Lanka  #
 #####################################################################
 
-if len(sys.argv) >= 2: myCountry = sys.argv[1]
-else:
+## Use system args if running in terminal and else if in debug mode
+if len(sys.argv) >= 2:
+    myCountry = sys.argv[1]
+
+if myCountry == '--mode=client':
     #myCountry = 'RO'
     myCountry = 'HT'
     print('Setting country to ' + myCountry + '. Currently implemented for the following countries: '
@@ -71,22 +74,21 @@ else:
 # From local libraries, lib_country_dir is the most important here  #
 #####################################################################
 
-# Set directories
+## Set directories
 # A key output of this is the population
 intermediate = set_directories(myCountry)
 
-# Administrative unit (eg region or province) - two levels
+## Administrative unit (eg region or province) - two levels
 # Later the region is called region_code and prov_code
 # The province is an aggregate of the regions
 economy = get_economic_unit(myCountry)
 
-# Levels of index at which one event happens
+## Levels of index at which one event happens
 event_level = [economy, 'hazard', 'rp']
 
-# Country dictionaries
+## Country dictionaries
 # Uses the hh survey data to get population by economy (the level of spatial resolution desired)
 # index will be the economy as numeric with one column that is the population
-
 df = get_places(myCountry)
 prov_code, region_code = get_places_dict(myCountry)
 
@@ -94,13 +96,18 @@ prov_code, region_code = get_places_dict(myCountry)
 # Define parameters                                                 #
 # All coming from lib_country_dir, in the future should be a file   #
 #####################################################################
+
+## Set country protection
 # Countries will be 'protected' from events with RP < 'protection'
-# --> means that asset losses (dK) will be set to zero for these events
+# Models retrofitting or raising protection standards
+# Asset losses (dK) set to zero for these events with return period (rp) less than the value of protection
+# Note: df only contains populations so this replicates the values for each economy
 df['protection'] = 1
 if myCountry == 'SL': df['protection'] = 5
 
+## Set assumed variables
 df['avg_prod_k']             = get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
-df['shareable']              = nominal_asset_loss_covered_by_PDS # target of asset losses to be covered by scale up
+df['shareable']              = nominal_asset_loss_covered_by_PDS # target of asset losses to be covered by scale up, called 'shareable'
 df['T_rebuild_K']            = reconstruction_time     # Reconstruction time
 df['income_elast']           = inc_elast               # income elasticity
 df['max_increased_spending'] = max_support             # 5% of GDP in post-disaster support maximum, if everything is ready
@@ -114,101 +121,108 @@ df['rho']                    = 0.3*df['avg_prod_k']    # discount rate
 # A Big function loads standardized hh survey info                  #
 #####################################################################
 
+## Use the household survey data to create needed variables
+# This is one of the most crucial steps
 cat_info = load_survey_data(myCountry)
-run_urban_plots(myCountry,cat_info.copy())
-print('Survey population:',cat_info.pcwgt.sum())
 
-cat_info = cat_info.reset_index().set_index([economy, 'hhid'])
-try:
-    cat_info = cat_info.drop('index', axis=1)
-except:
-    pass
-# Now we have a dataframe called <cat_info> with the household info.
-# Index = [economy (='region';'district'; country-dependent), hhid]
-
-########################################
-# Calculate regional averages from household info
-#df['gdp_pc_prov'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum(level=economy)/cat_info['pcwgt'].sum(level=economy)
-# ^ per capita income (in local currency), regional average
-#df['gdp_pc_nat'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum()/cat_info['pcwgt'].sum()
-# ^ this is per capita income (local currency), national average
-
-#df['pop'] = cat_info.pcwgt.sum(level=economy)
-# ^ regional population
-
+## Look at population counts
+print('HH survey population:',cat_info.pcwgt.sum())
+# Philippines specific compare PSA population to FIES population
 try: df['pct_diff'] = 100.*(df['psa_pop']-df['pop'])/df['pop']
 except: pass
-# ^ (Philippines specific) compare PSA population to FIES population
 
+## todo add plots here for HT, currently commented out
+#run_urban_plots(myCountry,cat_info.copy())
 
-########################################
-########################################
-# Asset vulnerability
-# Based upon construction materials
-print('Getting vulnerabilities')
-
-vul_curve = get_vul_curve(myCountry,'wall')
-# From diff: vul_curve = get_vul_curve(myCountry,'wall').set_index('desc').to_dict()
-# below commented out
-for thecat in vul_curve.desc.unique():  
-    cat_info.loc[cat_info['walls'] == thecat,'v'] = float(vul_curve.loc[vul_curve.desc.values == thecat,'v'])
-    # Fiji doesn't have info on roofing, but it does have info on the *condition* of outer walls. Include that as a multiplier?
-    
-# Get roofing data (but Fiji doesn't have this info)
-
-try:
-    print('Getting roof info')
-    vul_curve = get_vul_curve(myCountry,'roof')
-    for thecat in vul_curve.desc.unique():
-        cat_info.loc[cat_info.roof.values == thecat,'v'] += vul_curve.loc[vul_curve.desc.values == thecat].v.values
-    cat_info.v = cat_info.v/2
+## Add an index to cat_info with economy and hhid
+# Now we have a dataframe called <cat_info> with the household info.
+# Index = [economy (='region';'district'; country-dependent), hhid]
+cat_info = cat_info.reset_index().set_index([economy, 'hhid'])
+try: cat_info = cat_info.drop('index', axis=1)
 except: pass
 
-# Get vulnerability of agricultural income to drought.
-# --> includes fraction of income from ag, so v=0 for hh with no ag income
-try: cat_info['v_ag'] = get_agricultural_vulnerability_to_drought(myCountry,cat_info)
-except: cat_info['v_ag'] = -1.
+#####################################################################
+# Asset Vulnerability                                               #
+# Based upon construction materials                                 #
+#####################################################################
 
-########################################
-########################################
+## Use the construction materials to determine vulnerability
+# This can also be done when loading the HH survey
+if 'v' in cat_info.columns:
+    print('Vulnerabilities already calculated, most likely in load_hh_survey')
+else:
+    print('Getting vulnerabilities')
+    vul_curve = get_vul_curve(myCountry,'wall')
+    # From diff: vul_curve = get_vul_curve(myCountry,'wall').set_index('desc').to_dict()
+    # below commented out
+    for thecat in vul_curve.desc.unique():
+        cat_info.loc[cat_info['walls'] == thecat,'v'] = float(vul_curve.loc[vul_curve.desc.values == thecat,'v'])
+        # Fiji doesn't have info on roofing, but it does have info on the *condition* of outer walls. Include that as a multiplier?
+
+    try:
+        print('Getting roof info')
+        vul_curve = get_vul_curve(myCountry,'roof')
+        for thecat in vul_curve.desc.unique():
+            cat_info.loc[cat_info.roof.values == thecat,'v'] += vul_curve.loc[vul_curve.desc.values == thecat].v.values
+            cat_info.v = cat_info.v/2
+    except: pass
+
+if 'v_ag' in cat_info.columns:
+    print('Agricultural vulnerabilities already calculated, most likely in load_hh_survey')
+else:
+    # Get vulnerability of agricultural income to drought.
+    # --> includes fraction of income from ag, so v=0 for hh with no ag income
+    try: cat_info['v_ag'] = get_agricultural_vulnerability_to_drought(myCountry,cat_info)
+    except: cat_info['v_ag'] = -1.
+
+#####################################################################
+# Poverty Analysis and Cleaning                                     #
+# This gets the poverty lines and computes summary statistics       #
+# This can also be added in load_hh_survey                          #
+# Note: Seems out-of-place and should be moved to f(x) and libs     #
+#####################################################################
 # Random stuff--needs to be sorted
 # --> What's the difference between income & consumption/disbursements?
-# --> totdis = 'total family disbursements'    
+# --> totdis = 'total family disbursements'
 # --> totex = 'total family expenditures'
 # --> pcinc_s seems to be what they use to calculate poverty...
 # --> can be converted to pcinc_ppp11 by dividing by (365*21.1782)
 
-#cat_info = cat_info.reset_index().set_index(['hhid',economy])
-
 # Save a sp_receipts_by_region.csv that has summary statistics on social payments
-try: run_sp_analysis(myCountry,cat_info.copy())
-except: pass
+#todo this is commented out for now (two lines below)
+#try: run_sp_analysis(myCountry,cat_info.copy())
+#except: pass
 
 #cat_info = cat_info.reset_index('hhid')
 
+#todo add a try here - this is done in lib_country_dir
 # Cash receipts, abroad & domestic, other gifts
 cat_info['social'] = (cat_info['pcsoc']/cat_info['c']).fillna(0)
 # --> All of this is selected & defined in lib_country_dir
 # --> Excluding international remittances ('cash_abroad')
 
-print('Getting pov line')
-cat_info = cat_info.reset_index().set_index('hhid')
-if 'pov_line' not in cat_info.columns:
-    try:
-        cat_info.loc[cat_info.Sector=='Urban','pov_line'] = get_poverty_line(myCountry,'Urban')
-        cat_info.loc[cat_info.Sector=='Rural','pov_line'] = get_poverty_line(myCountry,'Rural')
-        cat_info['sub_line'] = get_subsistence_line(myCountry)
-    except:
-        try: cat_info['pov_line'] = get_poverty_line(myCountry,by_district=False)
-        except: cat_info['pov_line'] = 0
+#todo add a try here - this is done in lib_country_dir
+if 'pov_line' in cat_info.columns:
+    print("Poverty line already set, most likley in load_hh_survey")
+else:
+    print('Getting pov line')
+    cat_info = cat_info.reset_index().set_index('hhid')
+    if 'pov_line' not in cat_info.columns:
+        try:
+            cat_info.loc[cat_info.Sector=='Urban','pov_line'] = get_poverty_line(myCountry,'Urban')
+            cat_info.loc[cat_info.Sector=='Rural','pov_line'] = get_poverty_line(myCountry,'Rural')
+            cat_info['sub_line'] = get_subsistence_line(myCountry)
+        except:
+            try: cat_info['pov_line'] = get_poverty_line(myCountry,by_district=False)
+            except: cat_info['pov_line'] = 0
 if 'sub_line' not in cat_info.columns:
     try: cat_info['sub_line'] = get_subsistence_line(myCountry)
     except: cat_info['sub_line'] = 0
-cat_info[['sub_line','pov_line']]
 
 cat_info = cat_info.reset_index().set_index(event_level[0])
 
-# Print some summary statistics from the survey data.
+## Print some summary statistics from the survey data.
+#todo all this output this should be moved to a library
 print(cat_info.describe().T)
 print('Total population:',int(cat_info.pcwgt.sum()))
 print('Total population (AE):',int(cat_info.aewgt.sum()))
@@ -235,53 +249,72 @@ print('\n--> Number in poverty (flagged poor):',float(round(cat_info.loc[(cat_in
 print('--> Poverty rate (flagged poor):',round(100.*cat_info.loc[(cat_info.ispoor==1),'pcwgt'].sum()/cat_info['pcwgt'].sum(),1),'%\n\n\n')
 
 # Save poverty_rate.csv, summary stats on poverty rate
-pd.DataFrame({'population':cat_info['pcwgt'].sum(level=economy),
+
+povdf = pd.DataFrame({'population':cat_info['pcwgt'].sum(level=economy),
               'nPoor':cat_info.loc[cat_info.ispoor==1,'pcwgt'].sum(level=economy),
               'n_pov':cat_info.loc[cat_info.eval('pcinc<=pov_line & pcinc>sub_line'),'pcwgt'].sum(level=economy), # exclusive of subsistence
               'n_sub':cat_info.loc[cat_info.eval('pcinc<=sub_line'),'pcwgt'].sum(level=economy),
-              'pctPoor':100.*cat_info.loc[cat_info.ispoor==1,'pcwgt'].sum(level=economy)/cat_info['pcwgt'].sum(level=economy)}).to_csv('../output_country/'+myCountry+'/poverty_rate.csv')
+              'pctPoor':100.*cat_info.loc[cat_info.ispoor==1,'pcwgt'].sum(level=economy)/cat_info['pcwgt'].sum(level=economy)})
+print(povdf)
+print('\nSaving poverty rates in /output_country/myC/poverty_rate.csv')
+try:
+    povdf.to_csv('../output_country/'+myCountry+'/poverty_rate.csv')
+except:
+    povdf.to_csv('output_country/'+myCountry+'/poverty_rate.csv')
+
 # Could also look at urban/rural if we have that divide
+if ('isrural' not in cat_info.columns) and ('urban-rural' in cat_info.columns):
+    cat_info['isrural'] = 0
+    cat_info.loc[cat_info['urban-rural'] == 'Rural', ['isrural']] = 1
 try:
     print('\n--> Rural poverty (flagged poor):',float(round(cat_info.loc[(cat_info.ispoor==1)&(cat_info.isrural),'pcwgt'].sum()/1E6,3)),'million')
     print('\n--> Urban poverty (flagged poor):',float(round(cat_info.loc[(cat_info.ispoor==1)&~(cat_info.isrural),'pcwgt'].sum()/1E6,3)),'million')
 except: print('Sad fish')
 
 # Standardize--hhid should be lowercase
-cat_info = cat_info.rename(columns={'HHID':'hhid'})
-
-
-#########################
-# Calculate K from C
-
+if 'HHID' in cat_info.columns: cat_info = cat_info.rename(columns={'HHID':'hhid'})
 # Change the name: district to code, and create an multi-level index
 if (myCountry == 'SL') or (myCountry =='BO'):
     cat_info = cat_info.rename(columns={'district':'code','HHID':'hhid'})
 
+#####################################################################
+# Calculate K from C                                                #
+# Get the social tax (tau), and set gamma                           #
+#                                                                   #
+#####################################################################
+
+## Tax revenue that is used to fund social payments
 # tau_tax = total value of social as fraction of total C
-# gamma_SP = Fraction of social that goes to each hh
+# gamma_SP = Fraction of social that goes to each hh, gamma is deprecated yet calculated
+# This is computed in lib_gather_data.py
 print('Get the tax used for domestic social transfer and the share of Social Protection')
 df['tau_tax'], cat_info['gamma_SP'] = social_to_tx_and_gsp(economy,cat_info)
-
+# todo ^ above looks wrong - seems like it should be cat_info.tau_tax and cat_info.gamma_SP
 
 # Calculate K from C - pretax income (without sp) over avg social income
 # Only count pre-tax income that goes towards sp
 print('Calculating capital from income')
 # Capital is consumption over average productivity of capital over a multiplier which is net social payments/taxes for each household
 cat_info['k'] = ((cat_info['c']/df['avg_prod_k'].mean())*((1-cat_info['social'])/(1-df['tau_tax'].mean()))).clip(lower=0.)
-print('Derived capital from income')
 
-cat_info.eval('k*pcwgt').sum(level=economy).to_csv('../inputs/'+myCountry+'/total_capital.csv')
+print('Derived capital from income. Saving as /inputs/myC/total_capital.csv')
+try:
+    cat_info.eval('k*pcwgt').sum(level=economy).to_csv('../inputs/'+myCountry+'/total_capital.csv')
+except:
+    cat_info.eval('k*pcwgt').sum(level=economy).to_csv('inputs/'+myCountry+'/total_capital.csv')
 
+#####################################################################
+# Calculate regional averages from household info                   #
+# Fix indexes, calculate regional and national rates, save          #
+#####################################################################
 
-#########################
-# Replace any codes with names
+## Replace any economy codes with names
 if myCountry == 'FJ' or myCountry == 'RO' or myCountry == 'SL':
     df = df.reset_index()
     if myCountry == 'FJ' or myCountry == 'SL':
         df[economy] = df[economy].replace(prov_code)
     if myCountry == 'RO':
         df[economy] = df[economy].astype('int').replace(region_code)
-
     df = df.reset_index().set_index([economy])
     try: df = df.drop(['index'],axis=1)
     except: pass
@@ -296,7 +329,7 @@ if myCountry == 'FJ' or myCountry == 'RO' or myCountry == 'SL':
     cat_info = cat_info.reset_index().set_index([economy,'hhid'])
     try: cat_info = cat_info.drop(['index'],axis=1)
     except: pass
-
+    print(cat_info.head())
 elif myCountry == 'BO':
     df = df.reset_index()
     # 2015 data
@@ -304,47 +337,59 @@ elif myCountry == 'BO':
     cat_info = cat_info.reset_index()
     # cat_info[economy].replace(prov_code,inplace=True) # replace division code with its name
     cat_info = cat_info.reset_index().set_index([economy,'hhid']).drop(['index'],axis=1)
-    
+    print(cat_info.head())
+elif myCountry == 'HT':
+    print('df index already contains names. Resetting Index')
+    df = df.reset_index().set_index([economy])
+    print(df.head())
+    print('cat_info index was set as economy and hhid')
+    print(cat_info.head())
 
-########################################
-# Calculate regional averages from household info
+## per capita income (in local currency), regional average
 df['gdp_pc_prov'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum(level=economy)/cat_info['pcwgt'].sum(level=economy)
-# ^ per capita income (in local currency), regional average
+assert len(df['gdp_pc_prov'].unique()) == df.shape[0], 'gdp values do not align with economy dimensions. might be index error'
 
+## this is per capita income (local currency), national average
+# this value will be the same for all observations
 df['gdp_pc_nat'] = cat_info[['pcinc','pcwgt']].prod(axis=1).sum()/cat_info['pcwgt'].sum()
-# ^ this is per capita income (local currency), national average
+assert len(df['gdp_pc_nat'].unique()) == 1, 'national gdp should all be the same. has differing values'
 
-#########################
-print('Save out regional poverty rates to regional_poverty_rate.csv')
-print(cat_info.head())
+## Save regional poverty
+print('Save out regional poverty rates to /inputs/myC/regional_poverty_rate.csv')
+try:
+    (100*cat_info.loc[cat_info.eval('c<pov_line'),'pcwgt'].sum(level=economy)
+    /cat_info['pcwgt'].sum(level=economy)).to_frame(name='poverty_rate').to_csv('../inputs/'+myCountry+'/regional_poverty_rate.csv')
+except:
+    (100*cat_info.loc[cat_info.eval('c<pov_line'),'pcwgt'].sum(level=economy)
+    /cat_info['pcwgt'].sum(level=economy)).to_frame(name='poverty_rate').to_csv('Inputs/'+myCountry+'/regional_poverty_rate.csv')
 
-(100*cat_info.loc[cat_info.eval('c<pov_line'),'pcwgt'].sum(level=economy)
- /cat_info['pcwgt'].sum(level=economy)).to_frame(name='poverty_rate').to_csv('../inputs/'+myCountry+'/regional_poverty_rate.csv')
+#####################################################################
+# Clean up the master dataframe, cat_info                           #
+# Check na observations and write dataframe                         #
+#####################################################################
 
+## Check to see if any economies have zero population weight
 # Shouldn't be losing anything here
+print('cat_info has',cat_info.loc[cat_info['pcwgt'] == 0].shape[0],'areas with zero population weight')
 cat_info = cat_info.loc[cat_info['pcwgt'] != 0]
-print('Check total population:',cat_info.pcwgt.sum())
-if myCountry == 'RO':
-    cat_info.to_csv('~/Desktop/tmp/RO_drops.csv')
-# cat_info.dropna(inplace=True,how='any')
-# Get rid of househouseholds with 0 consumption
+
+## Ensure populations match by across economies and households
+print('Check total population in cat_info:',cat_info.pcwgt.sum(), "Total population in df:", df.population.sum())
+assert cat_info.pcwgt.sum() == df.population.sum(), 'population mismatch'
+
+## Identify househouseholds with 0 consumption
+assert cat_info.loc[cat_info['c'] == 0 ,'hhid'].shape[0] == 0, 'There are households with zero consumption. Consider dropping'
+# Drop these hh for BO
 if myCountry == 'BO':
-    cat_info.drop(cat_info[cat_info['c'] ==0].index, inplace = True)
-print('Check total population (after dropna):',cat_info.pcwgt.sum())
+    cat_info.drop(cat_info[cat_info['c'] == 0].index, inplace = True)
 
-# Drop partially empty columns
-if myCountry == 'BO':
-    cat_info = cat_info.dropna(axis = 1)
-    # Save total populations to file to compute fa from population affected
-    cat_info.pcwgt.sum(level = 0).to_frame().rename({'pcwgt':'population'}, axis = 1).to_csv(os.path.join('../inputs/',myCountry,'population_by_state.csv'))
+## Write the entire cat_info dataframe
+try:
+    cat_info.to_csv('../intermediate/'+myCountry+'/cat_info_all_cols.csv')
+except:
+    cat_info.to_csv('intermediate/'+myCountry+'/cat_info_all_cols.csv')
 
-# Exposure
-print('check:',cat_info.shape[0],'=?',cat_info.dropna().shape[0])
-
-#cat_info.to_csv('~/Desktop/tmp/check.csv')
-cat_info =cat_info.dropna()
-
-# Cleanup dfs for writing out
+## Remove non-required columns
 cat_info_col = [economy,'province','hhid','region','pcwgt','aewgt','hhwgt','np','score','v','v_ag','c','pcinc_ag_gross',
                 'pcsoc','social','c_5','hhsize','ethnicity','hhsize_ae','gamma_SP','k','quintile','ispoor','isrural','issub',
                 'pcinc','aeinc','pcexp','pov_line','SP_FAP','SP_CPP','SP_SPS','nOlds','has_ew',
@@ -352,12 +397,21 @@ cat_info_col = [economy,'province','hhid','region','pcwgt','aewgt','hhwgt','np',
 cat_info = cat_info.drop([i for i in cat_info.columns if (i in cat_info.columns and i not in cat_info_col)],axis=1)
 cat_info_index = cat_info.drop([i for i in cat_info.columns if i not in [economy,'hhid']],axis=1)
 
+## Identify partially empty columns
+print('Check na values in cat_info for necessary:',cat_info.shape[0],'=?',cat_info.dropna().shape[0], 'If these do not match then observations are dropped')
+if myCountry == 'BO':
+    cat_info = cat_info.dropna(axis = 1)
+    # Save total populations to file to compute fa from population affected
+    cat_info.pcwgt.sum(level = 0).to_frame().rename({'pcwgt':'population'}, axis = 1).to_csv(os.path.join('../inputs/',myCountry,'population_by_state.csv'))
+else:
+    cat_info =cat_info.dropna()
+print('Final size of cat_info (households,features):', cat_info.shape)
+
 #####################################################################
 # Hazard Information                                                #
 #                                                                   #
 #####################################################################
 special_event = None
-#special_event = 'Idai'
 
 # SL FLAG: get_hazard_df returns two of the same flooding data, and
 # doesn't use the landslide data that is analyzed within the function.
@@ -500,7 +554,7 @@ except: pass
 fa_threshold = 0.95
 v_threshold = 0.95
 
-# # look up hazard ratios for one particular houshold.
+# # look up hazard ratios for one particular household.
 # idx = pd.IndexSlice
 # hazard_ratios.loc[idx['Ampara', 'PF', :, '521471']]
 
@@ -599,8 +653,6 @@ if myCountry == 'MW':
 
         v_mean = (hazard_ratios[['pcwgt','k','v']].prod(axis=1).sum(level=event_level)/hazard_ratios[['pcwgt','k']].prod(axis=1).sum(level=event_level)).to_frame(name='v_mean')
         hazard_ratios['frac_destroyed'] = hazard_ratios.eval('fa*v_mean')
-
-        
 
 if myCountry != 'SL' and myCountry != 'BO' and not special_event:
     # Normally, we pull fa out of frac_destroyed.

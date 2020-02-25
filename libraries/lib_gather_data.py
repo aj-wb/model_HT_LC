@@ -59,12 +59,14 @@ def social_to_tx_and_gsp(economy,cat_info):
     except:
         tx_tax = cat_info[['social','c','pcwgt']].prod(axis=1, skipna=False).sum() / cat_info[['c','pcwgt']].prod(axis=1, skipna=False).sum()
         gsp = cat_info[['social','c']].prod(axis=1,skipna=False) / cat_info[['social','c','pcwgt']].prod(axis=1, skipna=False).sum()
-        print('\n\nCalculating tax_social & gamma_SP *including* remittances')
+        print('\n\nCalculating tax_social & gamma_SP *including* remittances. '
+              'This will be in the consumption currency, for HT this is gourdes (G)')
     return tx_tax, gsp
 
 
 def perc_with_spline(data, wt, percentiles):
     """Find the cutoffs in data at each percentile given household weights
+
 
     Parameters
     ----------
@@ -138,7 +140,6 @@ def match_quintiles_score(hhdataframe,quintiles):
     for j in np.arange(1,len(quintiles)):
         hhdataframe.loc[(hhdataframe['score']<=quintiles[j])&(hhdataframe['score']>quintiles[j-1]),'quintile_score']=j+1
     return hhdataframe
-
 
 def reshape_data(income):
     """Basically returns income.values"""

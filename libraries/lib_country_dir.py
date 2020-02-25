@@ -202,7 +202,7 @@ def get_places(myC):
         # this will ensure the index is ordered like p_code
         df[economy] = df.index.values
         df.sort_values(economy, ascending=True, inplace=True)
-        df.drop([economy], axis=1, inplace=True)
+        #df.drop([economy], axis=1, inplace=True) #commented out because useful in gather_data around 307
         # reset the index names to be numeric
         df.reset_index(drop=True, inplace=True)
 
@@ -346,21 +346,193 @@ def get_places_dict(myC):
     return p_code,r_code
 
 def load_survey_data(myC):
-    df = None
     # This function will load the HH surveys and ensure the output df has the following:
-    # -> hhid household id
-    # -> hhinc household income? but seems to be expenditure (SL)
-    # -> pcinc household income per person
-    # -> hhwgt number of households this line is 'representative' of
-    # -> pcwgt total population this line is representative of
-    # -> hhsize household size
-    # -> hhsize_ae household size2
-    # -> hhsoc social payments (government and remittances)
-    # -> pcsoc per person social payments
-    # -> ispoor
-    # -> has_ew
+    #  -> hhid household id
+    #  -> hhinc household income? but seems to be expenditure (SL)
+    #  -> pcinc household income per person
+    #  -> hhwgt number of households this line is 'representative' of
+    #  -> pcwgt total population this line is representative of
+    #  -> hhsize household size
+    #  -> hhsize_ae household size2, adults-equivalent (only used by some countries as the headcount below poverty line)
+    #  -> hhsoc social payments (government and remittances)
+    #  -> pcsoc per person social payments
+    #  -> ispoor
 
-    if myC == 'RO':
+    df = None
+
+    if myC == 'HT':
+
+            dfout = pd.DataFrame()
+            economy = get_economic_unit(myC)
+
+            #### HOUSEHOLD & INCOME INFORMATION ####
+            # hhid = id
+            # hhsize = miembros
+            # hhwgt = pondera
+            # hhsize_ae = use gedad1 and exclude [0,14]
+            # pcwgt = miembros * pondera = hhsize * hhwgt
+            # aewgt = hhsize_ae * hhwgt
+            # pcinc = pcexp annual consumption per head
+            #       do not use: ipcf is per capita hh income, ipcf_m is per capita hh income, monetary
+            # hhinc = pcinc * hhsize
+            #       do not use: ift is total household income, itf_m is total hh income, monetary
+            # hhinc_ae = adult equivalent hhinc
+
+            ## read in the stata dataset converted to csv and select desired columns
+            dfhh = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv',
+                               usecols=['id', 'pondera', 'miembros', 'gedad1', 'urbano', 'pcexp', 'itf', economy])
+            # drop non-adults 8297 observations in [0,14]
+            hhchildren = dfhh[dfhh['gedad1'] == '[0,14]'].index
+            dfhh.drop(hhchildren, inplace=True)
+            dfhh['hhsize_ae'] = dfhh.groupby('id')['id'].transform('count')
+            dfhh['hhid'] = dfhh['id']
+
+            ## create output dataset that does not replicate households and names columns correctly
+            dfout = dfhh[['id', 'hhid','pondera', 'miembros', 'hhsize_ae', 'pcexp', 'urbano', 'itf', economy]].groupby('id').first()
+            dfout.rename(columns={'miembros': 'hhsize', 'pondera': 'hhwgt', 'pcexp': 'pcinc', 'urbano':'urban-rural', 'itf':'incomehh'}, inplace=True)
+            dfout['pcwgt'] = dfout['hhsize'] * dfout['hhwgt']
+            dfout['aewgt'] = dfout['hhsize_ae'] * dfout['hhwgt']
+            ## calculate hh income from per capita consumption
+            # use consumption because these numbers match poverty rates
+            dfout['hhinc'] = dfout['pcinc'] * dfout['hhsize']
+            dfout['hhinc_ae'] = dfout['pcinc'] * dfout['hhsize_ae']
+            dfout['c'] = dfout['hhinc'].copy()
+
+            ## calculate poverty lines and hh in poverty
+            # moderate poverty line is G 81.7 per capita per day, $1.98 in 2012 USD, $2.41 in PPP of 2005
+            # extreme poverty line is G 41.6 per capita per day, $1.00 in 2012 USD, $1.23 in PPP of 2005
+            # use moderate poverty line and the percentages in the paper match that using pcexp
+            annual_pov_line = 81.7 * 365
+            annual_pov_line_extreme = 41.6 * 365
+            dfout['pov_line'] = annual_pov_line
+            dfout['pov_line_extreme'] = annual_pov_line_extreme
+
+            dfout['ispoor'] = 0
+            dfout.loc[dfout['pcinc'] < annual_pov_line, 'ispoor'] = 1
+            dfout['ispoor_extreme'] = 0
+            dfout.loc[dfout['pcinc'] < annual_pov_line_extreme, 'ispoor_extreme'] = 1
+
+            print('In HT, with moderate annual_pov_line, G', annual_pov_line, 'the poor hh fraction is:',
+                  round(sum(dfout['ispoor']*dfout['pcwgt'])/sum(dfout['pcwgt']),3), 'should be ~58.5%' )
+            print('In HT, with extreme annual_pov_line, G', annual_pov_line_extreme, 'the poor hh percent is:',
+                  round(sum(dfout['ispoor_extreme']*dfout['pcwgt'])/sum(dfout['pcwgt']),3), 'should be ~23.8%')
+            # The percent of extreme poor in rural areas is 82.38%, which matches poverty paper stats on page 2
+            # Below the number of people that are poor and extreme poor matches b panel of Figure O.2
+            # temp = dfout.copy()
+            # temp = temp.loc[temp['urban-rural']=='Rural', ['ispoor', 'ispoor_extreme', 'pcwgt']]
+            # sum(temp['ispoor']*temp['pcwgt']) #4203677.0
+            # sum(temp['ispoor_extreme']*temp['pcwgt']) #2109004.0
+
+            ## savings use hhincome and subtract consumption
+            dfout['savings_income'] = dfout['incomehh'] - dfout['hhinc']
+            dfout.loc[dfout['savings_income'] < 0,['savings_income']] = 0
+
+            #### EARLY WARNING SYSTEM ####
+            # use electronic communication as proxy and if anyone in hh has the communication
+            dfew = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv', usecols=['id', 'telef', 'celular', 'televisor',
+                                                                          'computadora', 'internet_casa'])
+            dfew['ew'] = 0
+            dfew.loc[(dfew['telef'] == 'Tiene') | (dfew['celular'] == 'Access') | (dfew['televisor'] == 'Access') |
+                     (dfew['computadora'] == 'Access') | (dfew['internet_casa'] == 'Access'), 'ew'] = 1
+            dfew = dfew.groupby(['id'])['ew'].sum()
+            # join to the income dataframe on the hh index
+            dfout = dfout.join(dfew)
+            # this is for an earthquake
+            dfout['has_ew'] = 0
+
+            #### SOCIAL PROTECTION SYSTEMS ####
+            # hhsoc = total remittances ('nltranstotal0_e2') + pensions ('nlincome1def') + scholarships ('nlincome3def') +
+            #        other transfers ('nlincome2def') + food aid ('nlincome4def')
+            # note: nlincome4def covers 240 hh and food aid should cover 309. This might include hh where I_P04D == 'Oui'
+            # note food aid and other for food_trans and other_trans have too many households
+            # df['pcsoc'] = df['hhsoc'] / df['hhsize']
+            # ?? hhsoc = itranf total remittances from household, itranf_m monetary remittances
+            # trans_versgdef is total transfers paid in gourdes deflated Oct 2012
+            # From Table B5.1.1 numbers should match
+            # From Figure 5.3 8.3 percent of population covered by SA, 0.9 by Scholarship, 7.1 by food aid, 0.3 by public transfers
+            # Binary question: I_P04 - receiving aid, scholarship, pension, income
+            # I_J13 Do you benefit from social protection; HH_4013 hh received food aid; HH_U014 hh received reconstruction assistance
+
+            dfsp = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv', usecols=['id', 'nltranstotal0_e2', 'nlincome1def',
+                                                                       'nlincome2def', 'nlincome3def', 'nlincome4def'])
+            dfsp.fillna(0, inplace=True)
+            dfsp['hhsoc'] = dfsp[['nltranstotal0_e2', 'nlincome1def', 'nlincome2def', 'nlincome3def', 'nlincome4def']].sum(axis=1)
+            # dfsp[dfsp['hhsoc'] > 0]['hhsoc'].describe()
+
+            ## get total by hh and add to master df
+            dfhhsoc = dfsp.groupby(['id'])['hhsoc'].sum()
+            dfout = dfout.join(dfhhsoc)
+
+            ## add the per capital social protections
+            dfout['pcsoc'] = dfout['hhsoc'] / dfout['hhsize']
+
+            # living on savings and credit: iloc 399 loc 'I_P04F' Vivait de son épargne / crédit
+            # -> 8627 no , 94 yes
+            # With what resources does your household live? Lives on savings/cred 'HH_G03D'
+            # -> 1837 no, 539 yes
+            # HH_V10B1 household member benefited from association aid / loan since Earthquake quarti (?)
+            # HH_V10B2 household member benefited from association aid / loan since Earthquake religious
+            # HH_V10B3 household member benefited from association aid / loan since Earthquake professional
+            # HH_V10B4 household member benefited from association aid / loan since Earthquake political
+            # HH_V10B5 household member benefited from association aid / loan since Earthquake cultural
+            # HH_V10B8 household member benefited from association aid / loan since Earthquake
+
+            #### HOUSEHOLD SAVINGS & LOANS ####
+            # social: ratio of pcsoc/pcinc
+            # hh_share: if we have info on public assets (roads etc) what fraction are owned by hh.
+            # hh_share: context of model - do you have to save to rebuild or will govt/public)
+            # gamma_SP: deprecated set to zero
+            dfout['social'] = dfout['pcsoc'] / dfout['pcinc']
+            dfout['hh_share'] = 1
+            dfout['gamma_SP'] = 0
+
+            ## calculate savings as the hh income (not consumption) and hh social income minus consumption
+            #  Official poverty rates are based on consumption, not income.
+            #  The paper subtracts transfers from total consumption and assumes households consume all
+            #  of the income they receive, but only that income and no savings.
+            dfout['savings'] = (dfout['incomehh'] + dfout['hhsoc']) - dfout['hhinc']
+            dfout.loc[dfout['savings'] < 0, ['savings']] = 0
+
+            #### VULNERABILITY MATERIALS ####
+            # v: vulnerability fraction of assets loss with disaster
+            # for v set using the vulnerability of materials
+            # v_ag : vuln of agriculture (-1 don't have)
+            # for v_ag should have feature with agriclutural income 'ila_ag' do not see this now
+            # HH_B16A type of bdg hh occupies; HH_C01 wall material; HH_C02 roof material; HH_C03 soil material
+
+            ## read in all vulnerability information corresponding to the building
+            dfv = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv', usecols=['id', 'precaria', 'matpreca', 'HH_B16A',
+                                                                     'HH_C01', 'HH_C02', 'HH_C03'])
+            ## create a vulnerability measures based upon the type of materials;
+            dfv['v'] = 0
+            dfv.loc[(dfv['matpreca'] == 'Low-quality material') & (dfv['precaria'] == 'Hazardous'), 'v'] = 0.7
+            dfv.loc[(dfv['matpreca'] == 'Low-quality material') & (dfv['precaria'] == 'Not hazardous'), 'v'] = 0.4
+            dfv.loc[(dfv['matpreca'] == 'Non low-quality material') & (dfv['precaria'] == 'Hazardous'), 'v'] = 0.4
+            dfv.loc[(dfv['matpreca'] == 'Non low-quality material') & (dfv['precaria'] == 'Not hazardous'), 'v'] = 0.1
+            v_hh = dfv.groupby(['id'])['v'].sum()
+            # if not provided set to central value, 623 hh
+            v_hh.loc[v_hh == 0.0] = 0.4
+            # v_hh.value_counts()
+            dfout = dfout.join(v_hh)
+
+            ## add materials for future use
+            dfv = dfv[['id', 'HH_B16A', 'HH_C01', 'HH_C02', 'HH_C03']].groupby('id').first()
+            dfv.rename(columns={'id': 'hhid', 'HH_B16A': 'v_structure', 'HH_C01': 'v_walls', 'HH_C02': 'v_roof',
+                            'HH_C03': 'v_soil'}, inplace=True)
+            dfout = dfout.join(dfv)
+            # get agriculture vulnerability
+            dfout['v_ag'] = -1
+
+            #### INDUSTRY INFORMATION ####
+            ## Use I_J01 for the trade or profession
+            # Use 'bran' type of industry and maybe 'drawings' type of institution
+            # 'hbran' industry type head ;'hsins' institution type head
+
+            #### RETURN HH DATAFRAME ####
+            ## df becomes cat_info in gather_data.py
+            df = dfout.copy()
+            del dfout
+    elif myC == 'RO':
 
         # hbs_dict defined above as Dictionary for standard column names
         # Array to recreate hhid:
@@ -447,7 +619,7 @@ def load_survey_data(myC):
         df.loc[df['poor']=='Poor','ispoor'] = 1
         df.loc[df['upoor']=='Ultra-poor','issub'] = 1
         df = df.drop(['poor','upoor'],axis=1)
-        
+
         df['pcwgt'] = df[['hhwgt','hhsize']].prod(axis=1)
         df['pcinc'] = df['hhinc']/df['hhsize']
 
@@ -654,7 +826,7 @@ def load_survey_data(myC):
 
         df['income_ag_net'] = df['income_ag_net'].clip(upper=df['hhinc']) # household, not per cap
         df['income_ag_gross'] = df['income_ag_gross'].clip(upper=df['hhinc']) # household, not per cap
-        
+
         df.loc[(df.hhinc<7.5E5)&(df.income_ag_net>0)&(df.income_ag_net<7.5E5)].plot.scatter('hhinc','income_ag_net')
         plt.gca().get_figure().savefig('../output_plots/MW/ag_income_clipped_vs_total.pdf',format='pdf')
         plt.cla()
@@ -838,7 +1010,7 @@ def load_survey_data(myC):
                                 'FijiNationalProvidentFundPension':'SP_FNPF',
                                 'FNPFWithdrawalsEducationHousingInvestmentsetc':'SP_FNPF2',
                                 'SocialPensionScheme':'SP_SPS'}).set_index('HHID')
-        
+
         df['pov_line'] = 0.
         df.loc[df.Sector=='Urban','pov_line'] = get_poverty_line(myC,sec='Urban')
         df.loc[df.Sector=='Rural','pov_line'] = get_poverty_line(myC,sec='Rural')
@@ -1197,25 +1369,25 @@ def load_survey_data(myC):
 
         # print('Poverty lines differ by rural/urban and then departamento for urban only')
         # print(df_persona.groupby(['area','departamento']).mean()[['z','zext']])
-        
+
         df.pov_line.update(12*df_persona['z'].groupby(level = 0).mean())
         df.sub_line.update(12*df_persona['zext'].groupby(level = 0).mean())
         #df['ispoor'] = df['pcinc'] < df['pov_line']
-        
+
         ###########################
 
         ####
-        # Work backwards -- use flag, then figure out the implied value of the poverty & subsistence lines, by department & rural/urban 
+        # Work backwards -- use flag, then figure out the implied value of the poverty & subsistence lines, by department & rural/urban
         # NB: I don't know how many dimensions of the poverty & subsistence lines there are
         #      ...will repeat this process until I derive lines that recreate the existing flags
-        
+
         # urban : {'RURAL', "URBAN"}
         df['isrural'] = df['area'].str.lower().replace({'urbano':False,'rural':True,'urbana': False}).astype(bool)
 
         # Check poverty line here
         df['ispoor'] = df_persona.loc[~(df_persona.index.duplicated(keep='first')),'p0'] == 'Pobre'
-        df['issub'] = df_persona.loc[~(df_persona.index.duplicated(keep='first')),'pext0'] == 'Pobre extremo'        
-    
+        df['issub'] = df_persona.loc[~(df_persona.index.duplicated(keep='first')),'pext0'] == 'Pobre extremo'
+
         # Below can be used to reverse-engineer the poverty lines
         #df['pov_line'] = df.loc[df.ispoor==True].groupby(['NOMBRE_PROVINCIA','isrural'])['pcinc'].transform('max')
         #df['pov_line'] = df.groupby(['NOMBRE_PROVINCIA','isrural'])['pov_line'].transform('mean')
@@ -1296,21 +1468,27 @@ def load_survey_data(myC):
                         # 'hhsize_ae','gamma_SP','k','quintile','ispoor','pcinc','aeinc','pcexp','pov_line','SP_FAP','SP_CPP','SP_SPS','nOlds',
                         # 'has_ew','SP_PBS','SP_FNPF','SPP_core','SPP_add','axfin','pcsamurdhi','gsp_samurdhi','frac_remittance','N_children']
 
-    # Assing weighted household consumption to quintiles within each province
-    print('Finding quintiles')
-    economy = df.index.names[0]
-    listofquintiles=np.arange(0.20, 1.01, 0.20)
-    # groupby apply takes each economy and then applies the function separately to each economy.
-    # https://pandas.pydata.org/pandas-docs/stable/generated/pandas.core.groupby.GroupBy.apply.html
-    # Finds quintiles by district
-    df = df.reset_index().groupby(economy,sort=True).apply(lambda x:match_percentiles(x,perc_with_spline(reshape_data(x.c),reshape_data(x.pcwgt),listofquintiles),'quintile'))
+    ## Assign weighted household consumption to quintiles within each province
+    print('Finding hh quintiles')
+    if myC == 'HT':
+        df['quintile'] = df.groupby(economy)['c'].transform(lambda x: pd.qcut(x, 5, range(1,6)))
+    else:
+        listofquintiles = np.arange(0.20, 1.01, 0.20)
+        economy = df.index.names[0]
+        # groupby apply takes each economy and then applies the function separately to each economy.
+        # https://pandas.pydata.org/pandas-docs/stable/generated/pandas.core.groupby.GroupBy.apply.html
+        # Finds quintiles by district
+        df = df.reset_index().groupby(economy,sort=True).apply(lambda x:match_percentiles(x,perc_with_spline(reshape_data(x.c),reshape_data(x.pcwgt),listofquintiles),'quintile'))
 
-    print('Finding deciles')
-    # finds deciles by district
-    listofdeciles = np.arange(0.10, 1.01, 0.10)
-    df = df.reset_index().groupby(economy,sort=True).apply(lambda x:match_percentiles(x,perc_with_spline(reshape_data(x.c),reshape_data(x.pcwgt),listofdeciles),'decile'))
-    # drop extraneous columns
-    df.drop([icol for icol in ['level_0','index','pctle_05','pctle_05_nat'] if icol in df.columns],axis=1,inplace=True)
+    ## finds deciles by geospatial level of analysis (i.e., economy)
+    print('Finding hh deciles')
+    if myC == 'HT':
+        df['decile'] = df.groupby(economy)['c'].transform(lambda x: pd.qcut(x, 10, range(1,11)))
+    else:
+        listofdeciles = np.arange(0.10, 1.01, 0.10)
+        df = df.reset_index().groupby(economy,sort=True).apply(lambda x:match_percentiles(x,perc_with_spline(reshape_data(x.c),reshape_data(x.pcwgt),listofdeciles),'decile'))
+        # drop extraneous columns
+        df.drop([icol for icol in ['level_0','index','pctle_05','pctle_05_nat'] if icol in df.columns],axis=1,inplace=True)
 
     # Last thing: however 'c' was set (income or consumption), pcsoc can't be higher than 0.99*that!
     df['pcsoc'] = df['pcsoc'].clip(upper=0.99*df['c'])
@@ -1357,7 +1535,7 @@ def get_vul_curve(myC,struct):
     myC : str
         ISO2 of country
     struct : str
-        which building structure? Sheet names in vulnerrability curves in xlsx.
+        which building structure? Sheet names in vulnerability curves in xlsx.
 
     Returns
     -------
@@ -1957,13 +2135,17 @@ def get_pop_scale_fac(myC):
     return [1.E3,' (,000)']
 
 def get_avg_prod(myC):
-    """Returns values from the global resilience model for the average productivity of capital"""
+    """ An input from the most recent year:
+        https://www.rug.nl/ggdc/productivity/pwt/
+        https://github.com/walshb1/gRIMM/blob/UR2018/inputs/capital_data.csv
+    Returns values from the global resilience model for the average productivity of capital"""
     if myC == 'PH': return 0.273657188280276
     elif myC == 'FJ': return 0.336139019412
     elif myC == 'SL': return 0.337960802589002
     elif myC == 'MW': return 0.253076569219416
     elif myC == 'RO': return (277174.8438/1035207.75)
     elif myC == 'BO': return 0.4218342
+    elif myC == 'HT': return (16389.92/123287.91) #use 2012 cdgpo/cn
     assert(False)
 
 def get_demonym(myC):

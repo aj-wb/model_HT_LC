@@ -3,8 +3,9 @@ import matplotlib.pyplot as plt
 import os, glob
 import pandas as pd
 import seaborn as sns
+#import geopandas as gpd
 
-from libraries.lib_drought import *
+#from libraries.lib_drought import *
 from libraries.lib_gather_data import *
 from libraries.plot_hist import plot_simple_hist
 from libraries.pandas_helper import categorize_strings
@@ -69,16 +70,19 @@ def get_economic_unit(myC):
     if myC == 'RO': return 'Region'
     if myC == 'BO': return 'departamento'
     if myC == 'HT': return 'region_est2' #this is admin1 10 areas and will be the prov_code
-    assert(False)
+    assert (False)
 
 def get_currency(myC):
-    """Dictionary lookup of currency, multiplier, and exchange rate from ISO key"""
+    """Dictionary lookup of currency, multiplier, and exchange rate from ISO key
+       Note: When called from maps.lib the multiplier is not used only the exchange rate
+    """
     d = {'PH': ['b. PhP',1.E9,1./50.],
     'FJ': ['k. F\$',1.E3,1./2.],
     'SL': ['LKR',1.E9,1./150.],
     'MW': ['MWK',1.E9,1./724.64],
     'BO': ['BoB',1.E9,1./6.9],
-    'RO': ['RON',1.E9,1/4.166667]
+    'RO': ['RON',1.E9,1/4.166667],
+    'HT': ['G', 1.E9, 0.011]
     }
     try:
         return d[myC]
@@ -396,6 +400,7 @@ def load_survey_data(myC):
             # use consumption because these numbers match poverty rates
             dfout['hhinc'] = dfout['pcinc'] * dfout['hhsize']
             dfout['hhinc_ae'] = dfout['pcinc'] * dfout['hhsize_ae']
+            dfout['aeinc'] = dfout['hhinc'] / dfout['hhsize_ae']
             dfout['c'] = dfout['hhinc'].copy()
 
             ## calculate poverty lines and hh in poverty
@@ -431,14 +436,14 @@ def load_survey_data(myC):
             # use electronic communication as proxy and if anyone in hh has the communication
             dfew = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv', usecols=['id', 'telef', 'celular', 'televisor',
                                                                           'computadora', 'internet_casa'])
-            dfew['ew'] = 0
+            dfew['has_ew'] = 0
             dfew.loc[(dfew['telef'] == 'Tiene') | (dfew['celular'] == 'Access') | (dfew['televisor'] == 'Access') |
-                     (dfew['computadora'] == 'Access') | (dfew['internet_casa'] == 'Access'), 'ew'] = 1
-            dfew = dfew.groupby(['id'])['ew'].sum()
+                     (dfew['computadora'] == 'Access') | (dfew['internet_casa'] == 'Access'), 'has_ew'] = 1
+            dfew = dfew.groupby(['id'])['has_ew'].sum()
             # join to the income dataframe on the hh index
             dfout = dfout.join(dfew)
             # this is for an earthquake
-            dfout['has_ew'] = 0
+            dfout['has_ew_eq'] = 0
 
             #### SOCIAL PROTECTION SYSTEMS ####
             # hhsoc = total remittances ('nltranstotal0_e2') + pensions ('nlincome1def') + scholarships ('nlincome3def') +
@@ -466,7 +471,7 @@ def load_survey_data(myC):
             ## add the per capital social protections
             dfout['pcsoc'] = dfout['hhsoc'] / dfout['hhsize']
 
-            # living on savings and credit: iloc 399 loc 'I_P04F' Vivait de son épargne / crédit
+            # living on savings and credit: iloc 399 loc 'I_P04F' Vivait de son epargene/credit
             # -> 8627 no , 94 yes
             # With what resources does your household live? Lives on savings/cred 'HH_G03D'
             # -> 1837 no, 539 yes
@@ -1633,9 +1638,99 @@ def get_service_loss(myC):
         return service_loss
     else:return None
 
-def get_hazard_df(myC,economy,agg_or_occ='Occ',rm_overlap=False,special_event=None):
+def get_hazard_df(myC, economy, agg_or_occ='Occ', rm_overlap=False, special_event=None, econ_gdp_df= None):
 
-    if myC == 'PH':
+    if myC == 'HT':
+    # Haiti could be set-up like RO with a lib that outputs a file. For now this is all contained here
+    # We will use Admin level 1, 10 geospatial areas referred to as provinces (or p-code in gather_data)
+
+        ## The output dataframe
+        df_haz = pd.DataFrame()
+
+        ## Get GDP by admin-1 to use as a denominator
+        admin1_gdp = econ_gdp_df[['gdp_pc_prov']].copy()
+        admin1_gdp.rename(columns={'gdp_pc_prov':'GDP'}, inplace=True)
+        # No need to link provs to regions as we have hazard info at level-1
+
+        ## Calculate fraction_destroyed = (losses at hazard, rp, economy) / (total hh assets, economy gdp above)
+        ## Instead of taking the total losses divided by GDP we have the relative AAL
+        rel_losses = pd.read_csv(
+            inputs + 'hazard/HAITI_risk/Haiti - CDRP Final Outputs/Loss Shapefiles/Haiti_Admin1_Losses.csv')
+        rel_losses.loc[rel_losses['NAME_1'] == "L'Artibonite", ['NAME_1']] = "Artibonite"
+        rel_losses.drop('VARNAME_1', axis=1, inplace=True)
+        rel_losses.set_index('NAME_1', inplace=True)
+        rel_losses = rel_losses.join(econ_gdp_df)
+        # rel_tc should be the frac_destroyed
+        rel_losses['total_losses_tc'] = rel_losses['rel_tc'] * rel_losses['gdp_pc_prov']
+        rel_losses['total_losses_eq'] = rel_losses['rel_eq'] * rel_losses['gdp_pc_prov']
+        rel_losses['percent_public_tc'] = rel_losses['H1WIND_EXP'] / (rel_losses['H1WIND_EXP'] + rel_losses['gdp_pc_prov'])
+        rel_losses['percent_public_eq'] = rel_losses['H1EQ_EXP'] / (rel_losses['H1EQ_EXP'] + rel_losses['gdp_pc_prov'])
+
+        # Get EQ event
+        df_haz_eq = rel_losses[['rel_eq', 'total_losses_eq', 'percent_public_eq', 'H1EQ_EXP', 'H1EQ_AAL']].copy()
+        df_haz_eq['hazard'] = 'EQ'
+        df_haz_eq.rename(columns={'rel_eq':'fraction_destroyed','total_losses_eq':'losses_L', 'H1EQ_AAL':'AAL',
+                                  'percent_public_eq':'public_percent', 'H1EQ_EXP':'exposed_assets'}, inplace=True)
+        df_haz_tc = rel_losses[['rel_tc', 'total_losses_tc', 'percent_public_tc', 'H1WIND_EXP', 'H1WIND_AAL']].copy()
+        df_haz_tc['hazard'] = 'TC'
+        df_haz_tc.rename(columns={'rel_tc': 'fraction_destroyed', 'total_losses_tc': 'losses_L', 'H1WIND_AAL':'AAL',
+                                  'percent_public_tc': 'public_percent', 'H1WIND_EXP':'exposed_assets'}, inplace=True)
+        df_haz = pd.concat([df_haz_eq, df_haz_tc])
+        ## set return periods and events and add to output dataframe
+        # inverse probability that even occurs
+        rp = [10, 1000]
+        # only use one rp for now - this is the only data we have for the losses and exposures
+        df_haz['rp'] = rp[0]
+
+        ## Add other features to df_haz
+        df_haz['fa'] = np.nan
+        df_haz[economy] = df_haz.index
+        ## Cannot get fa the fraction_destroyed / average_vulnerability
+        # Later in gather_data v_avg is calculated - the v_avg below is wrong so we don't use!
+        #rel_losses['fa_tc'] = rel_losses['rel_tc']/rel_losses['v_avg']
+        #rel_losses['fa_eq'] = rel_losses['rel_eq']/rel_losses['v_avg']
+        df_haz.to_csv(inputs + 'hazard/admin1_frac_destroyed_fa.csv')
+
+        df_haz.set_index([economy, 'hazard', 'rp'])
+        return df_haz[['fa']], df_haz
+
+    elif myC == 'RO':
+
+    # this file is created in libraries/lib_collect_hazard_data_RO
+        df_haz = pd.read_csv('../inputs/RO/hazard/romania_multihazard_fa.csv').set_index(['Region', 'hazard', 'rp'])
+
+        ## this file has total GDP (by county), which we'll use as denominator
+        # df_gdp = pd.read_csv(inputs+'county_gdp.csv').set_index('County')[['GDP']]
+        #
+        ## this file links counties to regions, because HBS has only regional info
+        # df_geo_info = pd.read_csv(inputs+'county_to_region.csv').set_index('County')[['Region']]# also has NUTS codes
+        #
+        ## merge above
+        # df_counties = pd.merge(df_gdp.reset_index(),df_geo_info.reset_index(),on='County').set_index('County')
+        #
+        ## This file has capital loss to EQ (by county), which we'll use as numerator
+        # df_EQ_caploss = pd.read_csv(inputs+'hazard/_EQ_caploss_by_county.csv').set_index('County')
+        # df_EQ_caploss['hazard'] = 'EQ'
+        #
+        ## Merge above
+        # df_haz = pd.merge(df_counties.reset_index(),df_EQ_caploss.reset_index(),on='County').set_index(['Region','hazard','rp']).drop(['County'],axis=1)
+        #
+        ## Sum county-level results to regions
+        # df_haz = df_haz.sum(level=['Region','hazard','rp'])
+        #
+        ## Choose which exceedance curve to use:
+        ## - Options:
+        ## - 1) PML: probably maximum loss
+        ## - 2) AAL: average annual loss
+        ## - 3) AEP: annual exceedance probability
+        # loss_measure_to_use = 'AAL'
+        #
+        # df_haz = df_haz.drop([_l for _l in ['AAL','AEP','PML'] if _l != loss_measure_to_use],axis=1)
+        # df_haz['frac_destroyed'] = df_haz.eval(loss_measure_to_use+'/GDP').clip(upper=0.99)
+        #
+        return df_haz[['fa']], df_haz[['fa']]
+
+    elif myC == 'PH':
         df_prv = get_AIR_data(inputs+'/Risk_Profile_Master_With_Population_with_EP1.xlsx','Loss_Results','Private',agg_or_occ).reset_index()
         df_pub = get_AIR_data(inputs+'/Risk_Profile_Master_With_Population_with_EP1.xlsx','Loss_Results','Public',agg_or_occ).reset_index()
 
@@ -1759,7 +1854,7 @@ def get_hazard_df(myC,economy,agg_or_occ='Occ',rm_overlap=False,special_event=No
 
         # Load loss data for Idai, if special_event == 'Idai'
         if special_event and special_event.lower() == 'idai':
-            
+
             _district_index = df_haz.sum(level='district').index
             _df_idai = pd.read_csv('/Users/brian/Desktop/BANK/hh_resilience_model/inputs/MW/CY_Idai/fa.csv').set_index(['district'])
             df_haz = pd.DataFrame({'fa':_df_idai['fa'],
@@ -2000,42 +2095,6 @@ def get_hazard_df(myC,economy,agg_or_occ='Occ',rm_overlap=False,special_event=No
         # Why two copies of the same df?
         return df,df
 
-    elif myC == 'RO':
-
-        # this file is created in libraries/lib_collect_hazard_data_RO
-        df_haz = pd.read_csv('../inputs/RO/hazard/romania_multihazard_fa.csv').set_index(['Region','hazard','rp'])
-        
-        ## this file has total GDP (by county), which we'll use as denominator
-        #df_gdp = pd.read_csv(inputs+'county_gdp.csv').set_index('County')[['GDP']]
-        #
-        ## this file links counties to regions, because HBS has only regional info
-        #df_geo_info = pd.read_csv(inputs+'county_to_region.csv').set_index('County')[['Region']]# also has NUTS codes
-        #
-        ## merge above
-        #df_counties = pd.merge(df_gdp.reset_index(),df_geo_info.reset_index(),on='County').set_index('County')
-        #
-        ## This file has capital loss to EQ (by county), which we'll use as numerator
-        #df_EQ_caploss = pd.read_csv(inputs+'hazard/_EQ_caploss_by_county.csv').set_index('County')
-        #df_EQ_caploss['hazard'] = 'EQ'
-        #
-        ## Merge above
-        #df_haz = pd.merge(df_counties.reset_index(),df_EQ_caploss.reset_index(),on='County').set_index(['Region','hazard','rp']).drop(['County'],axis=1)
-        #
-        ## Sum county-level results to regions
-        #df_haz = df_haz.sum(level=['Region','hazard','rp'])
-        #
-        ## Choose which exceedance curve to use:
-        ## - Options:
-        ## - 1) PML: probably maximum loss
-        ## - 2) AAL: average annual loss
-        ## - 3) AEP: annual exceedance probability
-        #loss_measure_to_use = 'AAL'
-        #
-        #df_haz = df_haz.drop([_l for _l in ['AAL','AEP','PML'] if _l != loss_measure_to_use],axis=1)
-        #df_haz['frac_destroyed'] = df_haz.eval(loss_measure_to_use+'/GDP').clip(upper=0.99)
-        #
-        return df_haz[['fa']], df_haz[['fa']]
-
     elif myC == 'BO':
         df = pd.read_csv(os.path.join(inputs,'flood_risk_by_state.csv'))
         collist = list(df.columns)
@@ -2077,6 +2136,7 @@ def get_poverty_line(myC,by_district=True,sec=None):
     pov_line = 0.0
 
     if myC == 'PH': pov_line = 22302.6775#21240.2924
+    if myC == 'HT': pov_line = 81.7 * 365
     if myC == 'MW': pov_line = 137427.98
     if myC == 'FJ':
         # 55.12 per week for an urban adult
@@ -2104,10 +2164,14 @@ def get_poverty_line(myC,by_district=True,sec=None):
     return pov_line
 
 def get_subsistence_line(myC):
-
-    if myC == 'PH': return 14832.0962*(22302.6775/21240.2924)
-    elif myC == 'MW': return 85260.164
-    elif myC == 'RO': return 40*(1.25/1.90)*1.645*365
+    """ The subsistence level should be less than the poverty level
+    Can be defined by Country or Geospatial within a Country """
+    if myC == 'PH':
+        return 14832.0962*(22302.6775/21240.2924)
+    elif myC == 'MW':
+        return 85260.164
+    elif myC == 'RO':
+        return 40*(1.25/1.90)*1.645*365
     elif myC == 'SL':
         pov_line = float(pd.read_excel('../inputs/SL/poverty_def_by_district.xlsx').T.loc['National','2017 Aug Rs.']*12.)
         # apply PPP to estimate 2016 value...
@@ -2115,7 +2179,9 @@ def get_subsistence_line(myC):
         # scale from $1.90/day to $1.25/day
         return (1.09/1.25)*pov_line
     elif myC == 'BO': return 365*1.25*3.43
-
+    elif myC == 'HT':
+        annual_pov_line_extreme = 41.6 * 365
+        return annual_pov_line_extreme
     else:
         print('No subsistence info. Returning False')
         return False
@@ -2128,6 +2194,7 @@ def get_to_USD(myC):
     if myC == 'MW': return 720.0
     if myC == 'RO': return 4.0
     if myC == 'BO': return 6.93
+    if myC == 'HT': return 42.43 #from hh survey 'erate' field represents 2012 numbers
     assert(False)
 
 def get_pop_scale_fac(myC):
@@ -2145,7 +2212,10 @@ def get_avg_prod(myC):
     elif myC == 'MW': return 0.253076569219416
     elif myC == 'RO': return (277174.8438/1035207.75)
     elif myC == 'BO': return 0.4218342
-    elif myC == 'HT': return (16389.92/123287.91) #use 2012 cdgpo/cn
+    elif myC == 'HT': return (16389.92/123287.91)
+    #for HT in 2012 (16389.92/123287.91) cdgpo/cn - (17988.44921875/158113.875) is more recent value from 2017
+    #dy_over_dk so y is total factor of productivity, in disruption after earthquake - in theory the dy should be a
+    #function of - maybe deprecated could also take into acoutn PPP in avg_prod_k
     assert(False)
 
 def get_demonym(myC):
@@ -2156,6 +2226,7 @@ def get_demonym(myC):
     if myC == 'MW': return 'Malawians'
     if myC == 'RO': return 'Romanians'
     if myC == 'BO': return 'Bolivians'
+    if myC == 'HT': return 'Haitians'
     return 'individuals'
 
 def scale_hh_income_to_match_GDP(df_o,new_total,flat=False):

@@ -106,7 +106,7 @@ df['protection'] = 1
 if myCountry == 'SL': df['protection'] = 5
 
 ## Set assumed variables
-df['avg_prod_k']             = get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
+df['avg_prod_k']             = 2 * get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
 df['shareable']              = nominal_asset_loss_covered_by_PDS # target of asset losses to be covered by scale up, called 'shareable'
 df['T_rebuild_K']            = reconstruction_time     # Reconstruction time
 df['income_elast']           = inc_elast               # income elasticity
@@ -748,7 +748,6 @@ _pi = float(df['avg_prod_k'].mean())
 _rho = float(df['rho'].mean())
 
 print('Running hh_reco_rate optimization - remember to check on lib_agents for HT')
-#todo lib_agents compare from RO to HT
 hazard_ratios['hh_reco_rate'] = 0
 
 if True:
@@ -761,28 +760,33 @@ if True:
     hazard_ratios.loc[hazard_ratios.index.duplicated(keep=False)].to_csv('~/Desktop/tmp/dupes.csv')
     assert(hazard_ratios.loc[hazard_ratios.index.duplicated(keep=False)].shape[0]==0)
 
-    hazard_ratios['hh_reco_rate'] = hazard_ratios.apply(lambda x:optimize_reco(v_to_reco_rate,_pi,_rho,x['v']),axis=1)
+    hazard_ratios['hh_reco_rate'] = hazard_ratios.apply(lambda x:optimize_reco(v_to_reco_rate,_pi,_rho,x['v'],x_max=17),axis=1)
     try:
         pickle.dump(v_to_reco_rate,open('../optimization_libs/'+myCountry+('_'+special_event if special_event != None else '')+'_v_to_reco_rate.p','wb'))
         print('gotcha')
     except: print('didnt getcha')
 
 #except:
-#    for _n, _i in enumerate(hazard_ratios.index):
-#        
+# try:
+#     v_to_reco_rate = {}
+#     # _n is step and _i is geospatial area
+#     for _n, _i in enumerate(hazard_ratios.index):
+#
 #        if round(_n/len(hazard_ratios.index)*100,3)%10 == 0:
 #            print(round(_n/len(hazard_ratios.index)*100,2),'% through optimization')
 #
+#         # take the mean of all v in the geospaitial areas
 #        _v = round(hazard_ratios.loc[_i,'v'].squeeze(),2)
 #
-#        #if _v not in v_to_reco_rate:
-#        #    v_to_reco_rate[_v] = optimize_reco(_pi,_rho,_v)
-#        #hazard_ratios.loc[_i,'hh_reco_rate'] = v_to_reco_rate[_v]
+#        if _v not in v_to_reco_rate:
+#            v_to_reco_rate[_v], outdata = optimize_reco(v_to_reco_rate, _pi,_rho,_v,x_max=17)
+#        hazard_ratios.loc[_i,'hh_reco_rate'] = v_to_reco_rate[_v]
 #
-#        hazard_ratios.loc[_i,'hh_reco_rate'] = optimize_reco(_pi,_rho,_v)
-#
-#    try: pickle.dump(hazard_ratios[['_v','hh_reco_rate']].to_dict(),open('../optimization_libs/'+myCountry+'_v_to_reco_rate.p','wb'))
-#    except: pass
+#        #hazard_ratios.loc[_i,'hh_reco_rate'] = optimize_reco(_pi,_rho,_v)
+#     #hazard_ratios.to_csv('hazard_ratios_17_2avgpk.csv')
+# except: pass
+# try: pickle.dump(hazard_ratios[['_v','hh_reco_rate']].to_dict(),open('../optimization_libs/'+myCountry+'_v_to_reco_rate.p','wb'))
+# except: pass
 
 # Set hh_reco_rate = 0 for drought
 hazard_ratios.loc[hazard_ratios.index.get_level_values('hazard') == 'DR','hh_reco_rate'] = 0
@@ -797,7 +801,7 @@ cat_info = cat_info.reset_index().set_index([economy,'hhid'])
 # This function collects info on the value and vulnerability of public assets
 cat_info, hazard_ratios = get_asset_infos(myCountry,cat_info,hazard_ratios,df_haz)
 
-df.rename(columns={'population':'pop'})
+df.rename(columns={'population':'pop'}) #todo check to see if we need this
 df.to_csv(intermediate+'/macro'+('_'+special_event if special_event is not None else '')+'.csv',encoding='utf-8', header=True,index=True)
 
 cat_info = cat_info.drop([icol for icol in ['level_0','index'] if icol in cat_info.columns],axis=1)

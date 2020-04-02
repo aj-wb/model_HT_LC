@@ -106,7 +106,7 @@ df['protection'] = 1
 if myCountry == 'SL': df['protection'] = 5
 
 ## Set assumed variables
-df['avg_prod_k']             = 2 * get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
+df['avg_prod_k']             = get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
 df['shareable']              = nominal_asset_loss_covered_by_PDS # target of asset losses to be covered by scale up, called 'shareable'
 df['T_rebuild_K']            = reconstruction_time     # Reconstruction time
 df['income_elast']           = inc_elast               # income elasticity
@@ -401,7 +401,8 @@ except:
 cat_info_col = [economy,'province','hhid','region','pcwgt','aewgt','hhwgt','np','score','v','v_ag','c','pcinc_ag_gross',
                 'pcsoc','social','c_5','hhsize','ethnicity','hhsize_ae','gamma_SP','k','quintile','ispoor','isrural','issub',
                 'pcinc','aeinc','pcexp','pov_line','SP_FAP','SP_CPP','SP_SPS','nOlds','has_ew',
-                'SP_PBS','SP_FNPF','SPP_core','SPP_add','axfin','pcsamurdhi','gsp_samurdhi','frac_remittance','N_children']
+                'SP_PBS','SP_FNPF','SPP_core','SPP_add','axfin','pcsamurdhi','gsp_samurdhi','frac_remittance','N_children',
+                'region_est3', 'child5', 'child14', 'poor_child5', 'extremepoor_child5']
 cat_info = cat_info.drop([i for i in cat_info.columns if (i in cat_info.columns and i not in cat_info_col)],axis=1)
 cat_info_index = cat_info.drop([i for i in cat_info.columns if i not in [economy,'hhid']],axis=1)
 
@@ -763,8 +764,8 @@ if True:
     hazard_ratios['hh_reco_rate'] = hazard_ratios.apply(lambda x:optimize_reco(v_to_reco_rate,_pi,_rho,x['v'],x_max=17),axis=1)
     try:
         pickle.dump(v_to_reco_rate,open('../optimization_libs/'+myCountry+('_'+special_event if special_event != None else '')+'_v_to_reco_rate.p','wb'))
-        print('gotcha')
-    except: print('didnt getcha')
+        print('Created the optimization_lib file - Success.\n')
+    except: print('didnt getcha. Failed to create the optimization_lib file.')
 
 #except:
 # try:
@@ -825,17 +826,16 @@ try:
 except: print('Dont have 2 datasets for GDP. Just using hh survey data.')
 try:
     summary_df.round(1).to_latex('latex/'+myCountry+'/grdp_table.tex')
-except: print('latex directory not specified correctly')
+except: print('\nLatex directory not specified correctly')
 summary_df.to_csv(intermediate+'/gdp.csv')
 
 
 ##############
 # Write out hazard ratios
-hazard_ratios= hazard_ratios.drop(['frac_destroyed','grdp_to_assets'],axis=1).drop(["flood_fluv_def"],level="hazard")
+hazard_ratios = hazard_ratios.drop(['frac_destroyed','grdp_to_assets'],axis=1).drop(["flood_fluv_def"],level="hazard")
 hazard_ratios.to_csv(intermediate+'/hazard_ratios'+('_'+special_event if special_event is not None else '')+'.csv',encoding='utf-8', header=True)
 
-print('\nfinished writing files')
+print('\nFinished writing files')
 
 #############
-# Consider sanity checks here
-# Can compare
+# Consider additional sanity checks here

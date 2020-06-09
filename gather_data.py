@@ -59,13 +59,17 @@ warnings.filterwarnings('always',category=UserWarning)
 if len(sys.argv) >= 2:
     myCountry = sys.argv[1]
 
-myCountry = 'HT'
+myCountry = 'LC'
 if myCountry == '--mode=client':
     #myCountry = 'RO'
-    myCountry = 'HT'
+    #myCountry = 'HT' #haiti
+    #myCountry = 'JM' #jamaica
+    #myCountry = 'GD' #grenada
+    #myCountry = 'DO' #dominican republic
+    myCountry = 'LC' #saint lucia
 print('Setting country to ' + myCountry + '. Currently implemented for the following countries: '
                                               'Fiji = FJ, Malawi = MW, Philippines = PH, Fiji = FJ, Sri Lanka = SL, '
-                                              'Bolivia = BO, Romania = RO, Haiti = HT, SaintLucia = SL, Jamaica = JM')
+                                              'Bolivia = BO, Romania = RO, Haiti = HT, SaintLucia = LC, Jamaica = JM')
 
 #####################################################################
 # Set-up directories/tell code where to look for inputs             #
@@ -79,8 +83,8 @@ print('Setting country to ' + myCountry + '. Currently implemented for the follo
 intermediate = set_directories(myCountry)
 
 ## Administrative unit (eg region or province) - two levels
+# This is the level at which the household survey is representative
 # Later the region is called region_code and prov_code
-# The province is an aggregate of the regions
 economy = get_economic_unit(myCountry)
 
 ## Levels of index at which one event happens
@@ -89,6 +93,7 @@ event_level = [economy, 'hazard', 'rp']
 ## Country dictionaries
 # Uses the hh survey data to get population by economy (the level of spatial resolution desired)
 # index will be the economy as numeric with one column that is the population
+# The province code (prov_code) is an aggregate of the regions and optional
 df = get_places(myCountry)
 prov_code, region_code = get_places_dict(myCountry)
 
@@ -106,6 +111,11 @@ df['protection'] = 1
 if myCountry == 'SL': df['protection'] = 5
 
 ## Set assumed variables
+reconstruction_time = 3.00 # time needed for reconstruction
+reduction_vul       = 0.20 # how much early warning reduces vulnerability
+inc_elast           = 1.50 # income elasticity (of capital?)
+max_support         = 0.05 # max expenditure on PDS as fraction of GDP (set to 5% based on PHL)
+nominal_asset_loss_covered_by_PDS = 0.80 # also, elsewhere, called 'shareable'
 df['avg_prod_k']             = get_avg_prod(myCountry)  # average productivity of capital, value from the global resilience model
 df['shareable']              = nominal_asset_loss_covered_by_PDS # target of asset losses to be covered by scale up, called 'shareable'
 df['T_rebuild_K']            = reconstruction_time     # Reconstruction time
@@ -132,6 +142,9 @@ try: df['pct_diff'] = 100.*(df['psa_pop']-df['pop'])/df['pop']
 except: pass
 
 ## todo add plots here for HT, currently commented out
+# requires isrural information
+# assumes the following exist in the dataframe cat_info
+#'ispoor','isrural'])[['pcwgt','totper','c','pcsoc','has_ew','pov_line','sub_line','issub']]
 #run_urban_plots(myCountry,cat_info.copy())
 
 ## Add an index to cat_info with economy and hhid
@@ -203,7 +216,7 @@ cat_info['social'] = (cat_info['pcsoc']/cat_info['c']).fillna(0)
 
 #todo add a try here - this is done in lib_country_dir
 if 'pov_line' in cat_info.columns:
-    print("Poverty line already set, most likley in load_hh_survey")
+    print("Poverty line already set, most likely in load_hh_survey")
 else:
     print('Getting pov line')
     cat_info = cat_info.reset_index().set_index('hhid')
@@ -228,7 +241,8 @@ print('Total population:',int(cat_info.pcwgt.sum()))
 print('Total population (AE):',int(cat_info.aewgt.sum()))
 print('Total n households:',int(cat_info.hhwgt.sum()))
 print('Average income - (adults) ',cat_info[['pcinc','pcwgt']].prod(axis=1).sum()/cat_info[['pcwgt']].sum())
-try: print('\nAverage income (Adults-eq)',cat_info[['aeinc','aewgt']].prod(axis=1).sum()/cat_info[['aewgt']].sum())
+try:
+    print('\nAverage income (Adults-eq)',cat_info[['aeinc','aewgt']].prod(axis=1).sum()/cat_info[['aewgt']].sum())
 except: pass
 
 try:
@@ -338,7 +352,7 @@ elif myCountry == 'BO':
     # cat_info[economy].replace(prov_code,inplace=True) # replace division code with its name
     cat_info = cat_info.reset_index().set_index([economy,'hhid']).drop(['index'],axis=1)
     print(cat_info.head())
-elif myCountry == 'HT':
+elif myCountry == 'HT' or myCountry == 'LC':
     print('df index already contains names. Resetting Index')
     df = df.reset_index().set_index([economy])
     print(df.head())
@@ -384,25 +398,26 @@ if 'population' in df.columns: df.rename(columns={'population':'pop'}, inplace=T
 print('Check total population in cat_info:',cat_info.pcwgt.sum(), "Total population in df:", df['pop'].sum())
 assert abs(1-(cat_info.pcwgt.sum() / df['pop'].sum())) < 0.0001, 'population mismatch'
 
-## Identify househouseholds with 0 consumption
-if 'hhcode' in cat_info.columns: cat_info['hhid'] = cat_info['hhcode']
-assert cat_info.loc[cat_info['c'] == 0 ,'hhid'].shape[0] == 0, 'There are households with zero consumption. Consider dropping'
-# Drop these hh for BO
-if myCountry == 'BO':
-    cat_info.drop(cat_info[cat_info['c'] == 0].index, inplace = True)
-
 ## Write the entire cat_info dataframe
 try:
     cat_info.to_csv('../intermediate/'+myCountry+'/cat_info_all_cols.csv')
 except:
     cat_info.to_csv('intermediate/'+myCountry+'/cat_info_all_cols.csv')
 
+## Identify househouseholds with 0 consumption
+if 'hhcode' in cat_info.columns: cat_info['hhid'] = cat_info['hhcode']
+assert cat_info.loc[cat_info['c'] == 0 ,'hhid'].shape[0] == 0, 'There are households with zero consumption. Consider dropping'
+# Drop these hh for BO
+if myCountry == 'BO' | myCountry == 'LC':
+    print('dropping hh with zero consumption')
+    cat_info.drop(cat_info[cat_info['c'] == 0].index, inplace = True)
+
 ## Remove non-required columns
 cat_info_col = [economy,'province','hhid','region','pcwgt','aewgt','hhwgt','np','score','v','v_ag','c','pcinc_ag_gross',
                 'pcsoc','social','c_5','hhsize','ethnicity','hhsize_ae','gamma_SP','k','quintile','ispoor','isrural','issub',
-                'pcinc','aeinc','pcexp','pov_line','SP_FAP','SP_CPP','SP_SPS','nOlds','has_ew',
-                'SP_PBS','SP_FNPF','SPP_core','SPP_add','axfin','pcsamurdhi','gsp_samurdhi','frac_remittance','N_children',
-                'region_est3', 'child5', 'child14', 'poor_child5', 'extremepoor_child5']
+                'pcinc','aeinc','pcexp','pov_line','SP_FAP','SP_CPP','SP_SPS','nOlds','has_ew', 'drinkingwater', 'wastedisposal',
+                'SP_PBS','SP_FNPF','SPP_core','SPP_add','axfin','pcsamurdhi','gsp_samurdhi','frac_remittance','N_children','hhremit', 'pcremit',
+                'region_est3', 'child5', 'child14', 'poor_child5', 'extremepoor_child5', 'ispoor_extreme', 'poor_child5', 'isrural']
 cat_info = cat_info.drop([i for i in cat_info.columns if (i in cat_info.columns and i not in cat_info_col)],axis=1)
 cat_info_index = cat_info.drop([i for i in cat_info.columns if i not in [economy,'hhid']],axis=1)
 
@@ -761,7 +776,7 @@ if True:
     hazard_ratios.loc[hazard_ratios.index.duplicated(keep=False)].to_csv('~/Desktop/tmp/dupes.csv')
     assert(hazard_ratios.loc[hazard_ratios.index.duplicated(keep=False)].shape[0]==0)
 
-    hazard_ratios['hh_reco_rate'] = hazard_ratios.apply(lambda x:optimize_reco(v_to_reco_rate,_pi,_rho,x['v'],x_max=17),axis=1)
+    hazard_ratios['hh_reco_rate'] = hazard_ratios.apply(lambda x:optimize_reco(v_to_reco_rate,_pi,_rho,x['v'],x_max=30),axis=1)
     try:
         pickle.dump(v_to_reco_rate,open('../optimization_libs/'+myCountry+('_'+special_event if special_event != None else '')+'_v_to_reco_rate.p','wb'))
         print('Created the optimization_lib file - Success.\n')

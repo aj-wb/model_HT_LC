@@ -438,7 +438,7 @@ def load_survey_data(myC):
 
         ## Set empty df and ls for column subset output
         dfout = pd.DataFrame()
-        cols_use = ['DISTRICT_NUM','DISTRICT_NAME']
+        cols_use = ['DISTRICT_NUM']
 
         #### LOAD FULL DATASET ####
         ## This dataset is the combined version of the household and persons files on parentid1
@@ -498,6 +498,8 @@ def load_survey_data(myC):
         ## hincome is the sum of aincome
         dfout.rename(columns={'parentid1': 'hhid'}, inplace=True)
         cols_use.append('hhid')
+        dfout.rename(columns={'DISTRICT_NAME': 'DISTRICT'}, inplace=True)
+        cols_use.append('DISTRICT')
         dfout.rename(columns={'persons': 'hhsize'}, inplace=True)
         cols_use.append('hhsize')
         ## This is the adult per capita income, but poverty lines use consumption (expenditures)
@@ -517,6 +519,8 @@ def load_survey_data(myC):
         ## For person weight this is 172638 total pop
         dfout.rename(columns={'WT.x': 'pcwgt'}, inplace=True)
         cols_use.append('pcwgt')
+        dfout['aewgt'] = dfout['pcwgt'].copy()
+        cols_use.append('aewgt')
         ## Note for hh weight group by parentid1 or hhid, 56231 hh
         dfout.rename(columns={'WT.y': 'hhwgt'}, inplace=True)
         cols_use.append('hhwgt')
@@ -610,10 +614,16 @@ def load_survey_data(myC):
         dfout['ispoor'] = 0
         dfout.loc[dfout['pcinc'] < 1354, 'ispoor'] = 1
         cols_use.append('ispoor')
+        dfout['pov_line'] = 1354
+        cols_use.append('pov_line')
+        dfout['sub_line'] = 1354*0.5
+        cols_use.append('sub_line')
         ## (2) $4.00/day
         dfout['ispoor_4'] = 0
         dfout.loc[dfout['pcinc'] < 2890, 'ispoor_4'] = 1
         cols_use.append('ispoor_4')
+        dfout['pov_line_4'] = 2890
+        cols_use.append('pov_line_4')
         ## (3) indigence line
         dfout['ispoor_ind'] = 0
         dfout.loc[dfout['pcinc'] < 2123, 'ispoor_ind'] = 1
@@ -622,6 +632,8 @@ def load_survey_data(myC):
         dfout['ispoor_rel'] = 0
         dfout.loc[dfout['pcinc'] < 6443, 'ispoor_rel'] = 1
         cols_use.append('ispoor_rel')
+        dfout['pov_line_rel'] = 6443
+        cols_use.append('pov_line_rel')
 
         #### VULNERABILITY & SHOCKS ####
         dfout.rename(columns={'s9q1': 'had_shock'}, inplace=True)
@@ -645,14 +657,17 @@ def load_survey_data(myC):
         dfout.loc[(dfout['roof']=='sheet metal (galvanize, galvalume)')|(dfout['roof']=='concrete'), 'v_roof'] = 0.1
         dfout.loc[
             (dfout['roof'] == 'makeshift/thatched') | (dfout['roof'] == 'shingle (other)') | (dfout['roof'] == 'shingle (wood)') | (dfout['roof'] == 'other'), 'v_roof'] = 0.7
+        cols_use.append('roof')
         ## get wall vulnerability
         dfout['v_walls'] = 0.4
         dfout.loc[
             (dfout['walls'] == 'concrete/concrete blocks') | (dfout['walls'] == 'wood & concrete'), 'v_walls'] = 0.1
         dfout.loc[
             (dfout['walls'] == 'brick/blocks') | (dfout['walls'] == 'makeshift '), 'v_walls'] = 0.7
+        cols_use.append('walls')
         ## Take the average of roof and walls - should be revised
         dfout['v'] = 0.5*dfout['v_roof']+0.5*dfout['v_walls']
+        cols_use.append('v')
 
         #### consumption quintiles and deciles ####
         dfout.rename(columns={'quintile.y': 'quintile'}, inplace=True)

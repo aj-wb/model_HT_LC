@@ -17,18 +17,16 @@ sns_pal = sns.color_palette('Set1', n_colors=8, desat=.5)
 global model_
 model = os.getcwd()
 
-
 # People/hh will be affected or not_affected, and helped or not_helped
 affected_cats = pd.Index(['a', 'na'], name='affected_cat') # categories for social protection
 helped_cats   = pd.Index(['helped','not_helped'], name='helped_cat')
 
-# These parameters could vary by country
-#todo move this to an input file and create a fx that reads this in
-reconstruction_time = 3.00 # time needed for reconstruction
-reduction_vul       = 0.20 # how much early warning reduces vulnerability
-inc_elast           = 1.50 # income elasticity (of capital?)
-max_support         = 0.05 # max expenditure on PDS as fraction of GDP (set to 5% based on PHL)
-nominal_asset_loss_covered_by_PDS = 0.80 # also, elsewhere, called 'shareable'
+# These parameters could vary by country - moved these to gather data
+#reconstruction_time = 3.00 # time needed for reconstruction
+#reduction_vul       = 0.20 # how much early warning reduces vulnerability
+#inc_elast           = 1.50 # income elasticity (of capital?)
+#max_support         = 0.05 # max expenditure on PDS as fraction of GDP (set to 5% based on PHL)
+#nominal_asset_loss_covered_by_PDS = 0.80 # also, elsewhere, called 'shareable'
 
 # Define directories
 def set_directories(myCountry):  # get current directory
@@ -70,6 +68,7 @@ def get_economic_unit(myC):
     if myC == 'RO': return 'Region'
     if myC == 'BO': return 'departamento'
     if myC == 'HT': return 'region_est2' #this is admin1 10 areas and will be the prov_code
+    if myC == 'LC': return 'DISTRICT' #the 12 districts are represented by 10
     assert (False)
 
 def get_currency(myC):
@@ -213,6 +212,25 @@ def get_places(myC):
         print("Total population in Haiti is: ", df.population.sum())
         return df
 
+    if myC == 'LC':
+        # spss files have a timestamp issue in python
+        # read in the csv file converted
+        # '/Users/jaycocks/Projects/wb_resilience/inputs/LC/SLCHBS2016PersonV12.csv'
+        df0 = pd.read_csv(inputs+'SLCHBS2016PersonV12.csv', usecols=['WT', economy])
+        df0.rename(columns={"WT": "population"}, inplace=True)
+        # aggregate to the economy level
+        df = df0[['population',economy]].groupby(economy).sum()
+
+        # this will ensure the index is ordered like p_code
+        df[economy] = df.index.values
+        df.sort_values(economy, ascending=True, inplace=True)
+        #df.drop([economy], axis=1, inplace=True) #commented out because useful in gather_data around 307
+        # reset the index names to be numeric
+        df.reset_index(drop=True, inplace=True)
+
+        print("Total population in Saint Lucia is: ", df.population.sum())
+        return df
+
     if myC == 'PH':
         df = pd.read_excel(inputs+'population_2015.xlsx',sheet_name='population').set_index('province').rename(columns={'population':'psa_pop'})
         return df
@@ -298,9 +316,9 @@ def get_places_dict(myC):
     """
 
     p_code, r_code = None, None
+    economy = get_economic_unit(myC)
 
     if myC == 'BO':
-        economy = get_economic_unit(myC)
         with open(inputs + 'departamentos.json', 'r') as f:
             p_code = pd.Series(json.load(f), name='nombre_'+ economy)
         p_code.index = p_code.index.astype(int)
@@ -331,7 +349,7 @@ def get_places_dict(myC):
         r_code.index = r_code.index.astype(int)
 
     if myC == 'HT':
-        economy = get_economic_unit(myC) #region_est2 10 areas, region_est3 42 areas
+        #region_est2 10 areas, region_est3 42 areas
         df0 = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv', usecols=[economy, 'region_est3'])
         p_code = pd.DataFrame(df0[economy].unique(), columns=[economy])
         p_code.sort_values(economy, ascending=True, inplace=True)
@@ -342,12 +360,54 @@ def get_places_dict(myC):
         r_code.sort_values('region_est3', ascending=True, inplace=True)
         r_code.reset_index(inplace=True, drop=True)
 
+    if myC == 'LC':
+        df0 = pd.read_csv(inputs + 'SLCHBS2016PersonV12.csv', usecols=[economy,'WT'])
+        p_code = pd.DataFrame(df0[economy].dropna().unique(), columns=[economy])
+        p_code.sort_values(economy, ascending=True, inplace=True)
+        p_code.reset_index(inplace=True, drop=True)
+
     try: p_code = p_code.to_dict()
     except: pass
     try: r_code = r_code.to_dict()
     except: pass
 
     return p_code,r_code
+
+def create_ind_category(myC, df, new_category = 'tourism'):
+    ## new category is a binary field, for Saint Lucia this is 'tourism'
+    ## if Saint Lucia create tourism category else return initial dataframe
+    # df = pd.read_csv(inputs + 'SLCHBS2016PersonV12_Housing.csv')
+
+    if myC == 'LC':
+        df[new_category] = 0
+
+        ## Tourism is the entire Accomodation and Food Service sector - 5610. (food service), 5510. (hotels), 5621. (food), 5500. (hotel), 5630. (bar), 5629. (food stall), 5620. (baking)
+        df.loc[df['sector']=='Accomodation and Food Service',new_category] = 1
+
+        ## Wholesale And Retail Trade sector has some codes that pertain to tourism (with dash)
+        # 4711. (product packaging), 4520. (vehicle maint), 4771. (-clothing store), 4722. (liquor), 4530. (car audio),
+        # 4791. (market vendor), 4759. (goods delivery), 4720. (supermarket), 4772. (pharmacy),
+        # 4710. (retail sales wharehouse), 4721. (retail groceries), 4789. (-selling tourists), 4781.(-snack selling), 4719. (-helping tourist attractions),
+        # 4770. (wholesale), 4630. (wholesale), 4761. (office supplies), 4600. (distribution), 4730. (gas), 4741. (computers),
+        # 4773. (-souveniers), 4752. (hardware/lumber), 4782. (vending/dry goods), 4799. (-clothing/souveneirs)
+        df.loc[(df['sector']=='Wholesale And Retail Trade') & (df['p4_20c'].isin([4771,4789,4781,4719,4773,4799])),new_category] = 1
+
+        ## Transportation sector also has some codes that pertain to tourism (with dash)
+        # 5224. (cargo), 4921. (bus and personal transport), 4922. (-touring), 4923. (heavy eqpt),
+        # 5010.(-yachting), 5229. (-shipping and tourist transport), 5120. (freight), 5210. (store transport),
+        # 5223. (-airport or aviation transfer), 5011. (-cruise ship), 5221. (trade worker transport), 5110. (-airport helicopter service),
+        # 5222. (marina and engineering), 5100. (-helicopter), 4920. (mini bus operator)])
+        df.loc[(df['sector'] == 'Transport, Storage And Communication') & (
+            df['p4_20c'].isin([4922,5010,5229,5223,5011,5110,5100])), new_category] = 1
+
+        ## Construction sector may have codes that could be affected by tourism but are not directly related
+        # 4100. (building constr), 4321. (electrical), 4210. (roads), 4329. (refridg), 4330. (tiling/welding),
+        # 4200. (civil eng), 4290. (green houses and farming), 4322. (pipe repair) , 4220. (pole and line maint), 4390. (construction)]
+
+        ## The other sectors are similar to construction
+        # 'Agriculture, Hunting, Forestry And Fishing', 'Manufacturing', 'Educational Services-Govt/Private',
+        # 'Storage And Communication', 'Other Services', 'Construction', 'Public Administration and Defense'
+    return df
 
 def load_survey_data(myC):
     # This function will load the HH surveys and ensure the output df has the following:
@@ -364,8 +424,246 @@ def load_survey_data(myC):
 
     df = None
 
-    if myC == 'HT':
 
+    if myC == 'JM':
+        print('JM not yet finished in load_survey_data')
+    elif myC == 'LC':
+        print('Loading and processing survey data for LC')
+        #### This dataset is merged using the 2016 Housing and Person datasets.
+        ## Merged on parentid1 (in R because of SPSS issue: full_df = merge(df_p, dat, by="parentid1"))
+
+        ## for testing - comment out two lines below
+        #myC = 'LC'
+        #set_directories(myC)
+
+        ## Set empty df and ls for column subset output
+        dfout = pd.DataFrame()
+        cols_use = ['DISTRICT_NUM','DISTRICT_NAME']
+
+        #### LOAD FULL DATASET ####
+        ## This dataset is the combined version of the household and persons files on parentid1
+        # 4574 observations and 577 features
+        dflc = pd.read_csv(inputs + 'SLCHBS2016PersonV12_Housing.csv')
+        ## get geospatial level of analysis
+        economy = get_economic_unit(myC)
+
+        #### INDUSTRY OF EMPLOYMENT ####
+        ## Add a binary tourism category (415 = 1, 4159 = 0)
+        dfout = create_ind_category(myC, dflc, new_category = 'tourism')
+        cols_use.append('tourism')
+        #dfout.loc[dfout.tourism==1,['Hours','p4_1']].mean()
+        # mean months = 10.88, mean hours = 41
+
+        ## Keep the binary for agriculture category (214 = 1, 4360 = 0)
+        cols_use.append('agric')
+        # dfout.loc[dfout.agric==1,['Hours','p4_1']].mean()
+        # mean months = 11.16, mean hours = 36.39
+
+        ## Keep the binary for public sector category (357 = 1, 4217 = 0)
+        cols_use.append('public')
+        # dfout.loc[dfout.public==1,['Hours','p4_1']].mean()
+        # mean months = 11.32, mean hours = 38.17
+
+        ## occupg is a recode of p4_19c the occupation,
+        ## sector is recode of p4_20c industry code and this is what is used for industry
+        ## ind_vars = ['p4_2', 'p4_20', 'p4_20c', 'occupg', 'sector']
+        dfout.rename(columns={"sector": "sector_employment"}, inplace=True)
+        cols_use.append('sector_employment')
+
+        #### URBAN/RURAL & OWN DWELLING####
+        ## urban variable (2883 urban, 1691 rural)
+        ## isrural is binary variable
+        dfout['isrural'] = 0
+        dfout.loc[dfout['urban']=='RURAL', 'isrural'] = 1
+        cols_use.append('isrural')
+
+        ## total household asset value
+        cols_use.append('tvalassets')
+
+        ## Owns home
+        dfout['own_home'] = 0
+        dfout.loc[(dfout['h1_5']=='owned (without mortgage)')|(dfout['h1_5']=='owned (with mortgage)'), 'own_home'] = 1
+
+        #### HOUSEHOLD & INCOME INFORMATION ####
+        # hhid = parentid1(1493 hh)
+        # hhwgt = WT.y from full_df with group by parentid1 or WT from House data
+        # pcwgt = WT.x from full_df or WT from Person data
+        # hhsize = persons
+        # pcinc = annual consumption per head
+        #       do not use: ipcf is per capita hh income, ipcf_m is per capita hh income, monetary
+        # hhinc = pcinc * hhsize
+        ## p4_23 is monthly income and p4_1 is months worked
+        ## pincome is monthly income, pincome_other is annual other income
+        ## aincome is pincome * p4_1 + pincome_other
+        ## hincome is the sum of aincome
+        dfout.rename(columns={'parentid1': 'hhid'}, inplace=True)
+        cols_use.append('hhid')
+        dfout.rename(columns={'persons': 'hhsize'}, inplace=True)
+        cols_use.append('hhsize')
+        ## This is the adult per capita income, but poverty lines use consumption (expenditures)
+        dfout.rename(columns={'aincome': 'pcinc_i'}, inplace=True)
+        cols_use.append('pcinc_i')
+        ## Per capita consumption income (fewer zeros than pcinc_i)
+        dfout.rename(columns={'pcexpae.x': 'pcinc'}, inplace=True)
+        cols_use.append('pcinc')
+        dfout['c'] = dfout['pcinc'].copy()
+        cols_use.append('c')
+        ## This is the adult hh income, but poverty lines use consumption (expenditures)
+        dfout.rename(columns={'hincome': 'hhinc_i'}, inplace=True)
+        cols_use.append('hhinc_i')
+        ## Household consumption income
+        dfout.rename(columns={'totexp.x': 'hhinc'}, inplace=True)
+        cols_use.append('hhinc')
+        ## For person weight this is 172638 total pop
+        dfout.rename(columns={'WT.x': 'pcwgt'}, inplace=True)
+        cols_use.append('pcwgt')
+        ## Note for hh weight group by parentid1 or hhid, 56231 hh
+        dfout.rename(columns={'WT.y': 'hhwgt'}, inplace=True)
+        cols_use.append('hhwgt')
+        #df[['WT.y', "parentid1"]].groupby(["parentid1"]).mean()['WT.y'].sum()
+
+        ## types of income - note p_other sums all non-wage income
+        dfout.rename(columns={'inc2331001': 'remit_income'}, inplace=True)
+        cols_use.append('remit_income')
+        dfout.rename(columns={'inc2231002': 'entrepre_income'}, inplace=True)
+        cols_use.append('entrepre_income')
+        dfout.rename(columns={'inc2341001': 'rental_income'}, inplace=True)
+        cols_use.append('rental_income')
+
+        #### EXPENDITURE & SAVINGS INFORMATION ####
+        ## Get per capita expenditures minus income, if less than zero than zero savings
+        dfout['exp_inc_diff'] = dfout['pcexpae.y'] - dfout['pcinc_i']
+        dfout['savings_income'] = 0
+        dfout.loc[dfout['exp_inc_diff'] > 0 , 'savings_income'] = dfout.loc[dfout['exp_inc_diff'] > 0 ,'exp_inc_diff']
+        cols_use.append('savings_income')
+        dfout['savings_income_rate'] = dfout['savings_income'] / dfout['pcinc_i']
+        cols_use.append('savings_income_rate')
+        ## Get household expenditures minus income, if less than zero than zero savings
+        dfout['exp_inc_diffhh'] = dfout['totexp.y'] - dfout['hhinc_i']
+        dfout['hhsavings'] = 0
+        dfout.loc[dfout['exp_inc_diffhh'] > 0 , 'hhsavings'] = dfout.loc[dfout['exp_inc_diffhh'] > 0 ,'exp_inc_diffhh']
+        cols_use.append('hhsavings')
+        dfout['hhsavings_rate'] = dfout['hhsavings'] / dfout['hhinc_i']
+        cols_use.append('hhsavings_rate')
+
+        ## Get bank or credit union
+        dfout['financial_inst'] = 0
+        dfout.loc[dfout['p1_11__3'] == 'yes - bank','financial_inst'] = 1
+        dfout.loc[dfout['p1_11__2'] == 'yes - bank', 'financial_inst'] = 1
+        dfout.loc[dfout['p1_11__2'] == 'yes - credit union', 'financial_inst'] = 1
+        dfout.loc[dfout['p1_11__1'] == 'yes - bank', 'financial_inst'] = 1
+        dfout.loc[dfout['p1_11__1'] == 'yes - credit union', 'financial_inst'] = 1
+        cols_use.append('financial_inst')
+
+        ## Amount spent on food
+        dfout.rename(columns={'s5mthfood.x': 'amt_spent_food'}, inplace=True)
+        cols_use.append('amt_spent_food')
+
+        #### SOCIAL PROTECTIONS ####
+        ## All social protections
+        sp_inds = ["inc2371001","inc2371002","inc2371003","inc2371004","inc2381002",
+        "inc2381003","inc2391001","inc2391002","inc2391003"]
+        dfout[sp_inds] = dfout[sp_inds].fillna(value=0)
+        dfout['pcsoc'] = dfout[sp_inds].sum(axis=1)
+        cols_use.append('pcsoc')
+        dfout['pcsoc_percent'] = dfout['pcsoc']/dfout['c']
+        cols_use.append('pcsoc_percent')
+        ## Additional fields
+        dfout['hh_share'] = 1
+        cols_use.append('hh_share')
+        dfout['gamma_SP'] = 0
+        cols_use.append('gamma_SP')
+
+        ## Entitled to NIC p4_17
+        #dfout[['pcwgt','p4_17']].groupby('p4_17').sum()
+        dfout['NIC'] = 0
+        dfout.loc[(dfout['p4_17'] == 'yes from and insurance other than nic')|
+                  (dfout['p4_17'] == 'yes, from the nic'), 'NIC'] = 1
+        cols_use.append('NIC')
+        ## NIC registered as self-employed/employer/none p4_18
+        dfout['NIC_reg_selfemployed'] = 0
+        dfout.loc[dfout['p4_18']=='self-employed', 'NIC_reg_selfemployed'] = 1
+        cols_use.append('NIC_reg_selfemployed')
+        dfout['NIC_reg_employer'] = 0
+        dfout.loc[dfout['p4_18']=='employer', 'NIC_reg_employer'] = 1
+        cols_use.append('NIC_reg_employer')
+
+        #### EARLY WARNING SYSTEM ####
+        ## use electronic communication as proxy and if anyone in hh has the communication
+        dfout['has_ew'] = 0
+        ## if amount paid for phone, internet or tv is greater than zero
+        dfout.loc[(dfout['c0830103']>0.)|(dfout['c0830401']>0.)|(dfout['c0830402']>0.)|(dfout['c0830201']>0.),'has_ew'] = 1
+        ## if has mobile phone p1_7
+        dfout.loc[dfout['p1_7'] == 'yes','has_ew'] = 1
+        cols_use.append('has_ew')
+
+        #### ISPOOR ####
+        ## Data has four poverty levels: (1) $1.90/day = 1354 (ipline190 in dataset)
+        ## (2) $4.00/day = 2890, (3) indigence line based on food is 2123 (indline in dataset),
+        ##(4) relative poverty line for food and non-food items is 6443 (povline in dataset)
+        # Saint Lucia's poverty line is 1.90 * 365 = $689.7 US Dollars per year, discounting using the PPP exchange rate of 1.952
+        # the international poverty line for Saint Lucia is 1.90 * 1.952 * 365 = EC $1, 354 (0.7% in doc have 0.66%)
+        # US $4 a day PPP is 4 * 1.952 * 365 = EC $2,890 (4.4% in doc have 4%)
+        # poverty highest in Dennery and Vieux-Fort
+        dfout['pcinc'] = dfout['pcinc'].fillna(0.)
+        ## (1) 1.90/day
+        dfout['ispoor'] = 0
+        dfout.loc[dfout['pcinc'] < 1354, 'ispoor'] = 1
+        cols_use.append('ispoor')
+        ## (2) $4.00/day
+        dfout['ispoor_4'] = 0
+        dfout.loc[dfout['pcinc'] < 2890, 'ispoor_4'] = 1
+        cols_use.append('ispoor_4')
+        ## (3) indigence line
+        dfout['ispoor_ind'] = 0
+        dfout.loc[dfout['pcinc'] < 2123, 'ispoor_ind'] = 1
+        cols_use.append('ispoor_ind')
+        ## (4) rel pov line
+        dfout['ispoor_rel'] = 0
+        dfout.loc[dfout['pcinc'] < 6443, 'ispoor_rel'] = 1
+        cols_use.append('ispoor_rel')
+
+        #### VULNERABILITY & SHOCKS ####
+        dfout.rename(columns={'s9q1': 'had_shock'}, inplace=True)
+        cols_use.append('had_shock')
+        ## create a vulnerability measures based upon the type of materials;
+        # This is by household
+        dfout.rename(columns={'h1_2': 'walls'}, inplace=True)
+        cols_use.append('walls')
+        dfout.rename(columns={'h1_3': 'roof'}, inplace=True)
+        cols_use.append('roof')
+        dfout.rename(columns={'h1_13': 'yr_house_built'}, inplace=True)
+        cols_use.append('yr_house_built')
+        dfout.rename(columns={'h1_13': 'yr_house_built'}, inplace=True)
+        cols_use.append('yr_house_built')
+        dfout.rename(columns={'c1252101': 'insurance_premium'}, inplace=True)
+        cols_use.append('insurance_premium')
+        ## For vulnerability classify the walls and roof (0.7 most precarious, 0.1 most stable)
+        # todo fill na with district averages
+        ## get roof vulnerability
+        dfout['v_roof'] = 0.4
+        dfout.loc[(dfout['roof']=='sheet metal (galvanize, galvalume)')|(dfout['roof']=='concrete'), 'v_roof'] = 0.1
+        dfout.loc[
+            (dfout['roof'] == 'makeshift/thatched') | (dfout['roof'] == 'shingle (other)') | (dfout['roof'] == 'shingle (wood)') | (dfout['roof'] == 'other'), 'v_roof'] = 0.7
+        ## get wall vulnerability
+        dfout['v_walls'] = 0.4
+        dfout.loc[
+            (dfout['walls'] == 'concrete/concrete blocks') | (dfout['walls'] == 'wood & concrete'), 'v_walls'] = 0.1
+        dfout.loc[
+            (dfout['walls'] == 'brick/blocks') | (dfout['walls'] == 'makeshift '), 'v_walls'] = 0.7
+        ## Take the average of roof and walls - should be revised
+        dfout['v'] = 0.5*dfout['v_roof']+0.5*dfout['v_walls']
+
+        #### consumption quintiles and deciles ####
+        dfout.rename(columns={'quintile.y': 'quintile'}, inplace=True)
+        cols_use.append('quintile')
+        dfout.rename(columns={'decile.y': 'decile'}, inplace=True)
+        cols_use.append('decile')
+
+        df = dfout.loc[:,cols_use].copy()
+        del dfout
+    elif myC == 'HT':
+            print('Loading and processing survey data for LC')
             dfout = pd.DataFrame()
             economy = get_economic_unit(myC)
 
@@ -383,24 +681,57 @@ def load_survey_data(myC):
             # hhinc_ae = adult equivalent hhinc
 
             ## read in the stata dataset converted to csv and select desired columns
+            #dfhh = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv')
+            #'nlincome2def','nltrans2_e2','nltranstotal3_e2', 'itran'
+
             dfhh = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv',
-                               usecols=['id', 'pondera', 'miembros', 'gedad1', 'urbano', 'pcexp', 'itf', economy])
-            # drop non-adults 8297 observations in [0,14]
+                               usecols=['id', 'pondera', 'miembros', 'edad', 'gedad1', 'urbano', 'pcexp',
+                               'itf', 'region_est3', economy])
+
+            # hh with non-adults 8297 observations in [0,14] (not hh)
             hhchildren = dfhh[dfhh['gedad1'] == '[0,14]'].index
+            dfhh['hhchildren'] = 0
+            dfhh.loc[hhchildren, 'hhchildren'] = 1
+            # Child under five 3445 observations (not hh)
+            hhchild5 = dfhh[dfhh['edad'] < 5].index
+            dfhh['hhchild5'] = 0
+            dfhh.loc[hhchild5,'hhchild5'] = 1
+            dfhh['hhid'] = dfhh['id'].copy()
+
+            dfoutchildren = dfhh[['id', 'hhid', 'hhchild5', 'hhchildren']].groupby('hhid').sum()
+            dfoutchildren['child5'] = 0
+            dfoutchildren.loc[dfoutchildren['hhchild5'] > 0,'child5'] = 1
+            dfoutchildren['child14'] = 0
+            dfoutchildren.loc[dfoutchildren['hhchildren'] > 0,'child14'] = 1
+            #dfoutchildren.set_index('id', inplace=True)
+            print('In HT, with number of hh with children under 5:', dfoutchildren.child5.sum())
+            print('In HT, with number of hh with children under 14:', dfoutchildren.child14.sum())
+
             dfhh.drop(hhchildren, inplace=True)
             dfhh['hhsize_ae'] = dfhh.groupby('id')['id'].transform('count')
             dfhh['hhid'] = dfhh['id']
 
             ## create output dataset that does not replicate households and names columns correctly
-            dfout = dfhh[['id', 'hhid','pondera', 'miembros', 'hhsize_ae', 'pcexp', 'urbano', 'itf', economy]].groupby('id').first()
+            dfout = dfhh[['id', 'hhid','pondera', 'miembros', 'hhsize_ae', 'pcexp', 'urbano', 'itf', 'region_est3', economy]].groupby('hhid').first()
             dfout.rename(columns={'miembros': 'hhsize', 'pondera': 'hhwgt', 'pcexp': 'pcinc', 'urbano':'urban-rural', 'itf':'incomehh'}, inplace=True)
+            #dfout['hhid'] = dfout['id'].copy()
+
+            ## join children
+            dfout = dfout.join(dfoutchildren[['child5', 'child14']])
+
+            ## Create population weights for total hh number (pcwgt) and adult equivalent (aewgt)
             dfout['pcwgt'] = dfout['hhsize'] * dfout['hhwgt']
             dfout['aewgt'] = dfout['hhsize_ae'] * dfout['hhwgt']
+
             ## calculate hh income from per capita consumption
             # use consumption because these numbers match poverty rates
             dfout['hhinc'] = dfout['pcinc'] * dfout['hhsize']
-            dfout['hhinc_ae'] = dfout['pcinc'] * dfout['hhsize_ae']
-            dfout['aeinc'] = dfout['hhinc'] / dfout['hhsize_ae']
+            #dfout['hhinc_ae'] = dfout['pcinc'] * dfout['hhsize_ae']
+            #dfout['aeinc'] = dfout['hhinc'] / dfout['hhsize_ae']
+            #todo ^ this is a hack because it is set elsewhere if want ae uncomment
+            dfout['aeinc'] = dfout['pcinc']
+            dfout['hhinc_ae'] = dfout['hhinc']
+            #^this replaces ae with non-ae values
             dfout['c'] = dfout['hhinc'].copy()
 
             ## calculate poverty lines and hh in poverty
@@ -416,6 +747,11 @@ def load_survey_data(myC):
             dfout.loc[dfout['pcinc'] < annual_pov_line, 'ispoor'] = 1
             dfout['ispoor_extreme'] = 0
             dfout.loc[dfout['pcinc'] < annual_pov_line_extreme, 'ispoor_extreme'] = 1
+
+            dfout['poor_child5'] = 0
+            dfout.loc[(dfout['ispoor']==1) & (dfout['child5']==1) , 'poor_child5'] = 1
+            dfout['extremepoor_child5'] = 0
+            dfout.loc[(dfout['ispoor_extreme'] == 1) & (dfout['child5'] == 1), 'extremepoor_child5'] = 1
 
             print('In HT, with moderate annual_pov_line, G', annual_pov_line, 'the poor hh fraction is:',
                   round(sum(dfout['ispoor']*dfout['pcwgt'])/sum(dfout['pcwgt']),3), 'should be ~58.5%' )
@@ -445,12 +781,28 @@ def load_survey_data(myC):
             # this is for an earthquake
             dfout['has_ew_eq'] = 0
 
+            #### WATER and SANITATION ####
+            dfws = pd.read_csv(inputs + 'ALL_HT_SEDLAC_dta.csv', usecols=['id', 'HH_C11', 'HH_C10A'])
+            dfws['wastedisposal'] = 0
+            dfws.loc[(dfws['HH_C11']==dfws['HH_C11'].unique()[0])|(dfws['HH_C11']==dfws['HH_C11'].unique()[2]),'wastedisposal'] = 1
+            dfws['drinkingwater'] = 0
+            dfws.loc[(dfws['HH_C10A'] == dfws['HH_C10A'].unique()[0]) |
+                     (dfws['HH_C10A'] == dfws['HH_C10A'].unique()[1]) |
+                     (dfws['HH_C10A'] == dfws['HH_C10A'].unique()[2]) |
+                     (dfws['HH_C10A'] == dfws['HH_C10A'].unique()[4]) |
+                     (dfws['HH_C10A'] == dfws['HH_C10A'].unique()[5]), 'drinkingwater'] = 1
+
+            dfws = dfws.groupby(['id'])[['drinkingwater', 'wastedisposal']].mean()
+            # join to the income dataframe on the hh index
+            dfout = dfout.join(dfws)
+
             #### SOCIAL PROTECTION SYSTEMS ####
             # hhsoc = total remittances ('nltranstotal0_e2') + pensions ('nlincome1def') + scholarships ('nlincome3def') +
             #        other transfers ('nlincome2def') + food aid ('nlincome4def')
             # note: nlincome4def covers 240 hh and food aid should cover 309. This might include hh where I_P04D == 'Oui'
             # note food aid and other for food_trans and other_trans have too many households
-            # df['pcsoc'] = df['hhsoc'] / df['hhsize']
+            # 484965
+            # = df['hhsoc'] / df['hhsize']
             # ?? hhsoc = itranf total remittances from household, itranf_m monetary remittances
             # trans_versgdef is total transfers paid in gourdes deflated Oct 2012
             # From Table B5.1.1 numbers should match
@@ -462,14 +814,16 @@ def load_survey_data(myC):
                                                                        'nlincome2def', 'nlincome3def', 'nlincome4def'])
             dfsp.fillna(0, inplace=True)
             dfsp['hhsoc'] = dfsp[['nltranstotal0_e2', 'nlincome1def', 'nlincome2def', 'nlincome3def', 'nlincome4def']].sum(axis=1)
+            dfsp['hhremit'] = dfsp['nlincome2def']
             # dfsp[dfsp['hhsoc'] > 0]['hhsoc'].describe()
 
             ## get total by hh and add to master df
-            dfhhsoc = dfsp.groupby(['id'])['hhsoc'].sum()
+            dfhhsoc = dfsp.groupby(['id'])[['hhsoc','hhremit']].sum()
             dfout = dfout.join(dfhhsoc)
 
             ## add the per capital social protections
             dfout['pcsoc'] = dfout['hhsoc'] / dfout['hhsize']
+            dfout['pcremit'] = dfout['hhremit'] / dfout['hhsize']
 
             # living on savings and credit: iloc 399 loc 'I_P04F' Vivait de son epargene/credit
             # -> 8627 no , 94 yes
@@ -511,14 +865,21 @@ def load_survey_data(myC):
             ## create a vulnerability measures based upon the type of materials;
             dfv['v'] = 0
             dfv.loc[(dfv['matpreca'] == 'Low-quality material') & (dfv['precaria'] == 'Hazardous'), 'v'] = 0.7
-            dfv.loc[(dfv['matpreca'] == 'Low-quality material') & (dfv['precaria'] == 'Not hazardous'), 'v'] = 0.4
-            dfv.loc[(dfv['matpreca'] == 'Non low-quality material') & (dfv['precaria'] == 'Hazardous'), 'v'] = 0.4
+            dfv.loc[(dfv['matpreca'] == 'Low-quality material') & (dfv['precaria'] == 'Not hazardous'), 'v'] = 0.3
+            dfv.loc[(dfv['matpreca'] == 'Non low-quality material') & (dfv['precaria'] == 'Hazardous'), 'v'] = 0.5
             dfv.loc[(dfv['matpreca'] == 'Non low-quality material') & (dfv['precaria'] == 'Not hazardous'), 'v'] = 0.1
+            # below for precarious
+            #dfv.loc[(dfv['matpreca'] == 'Low-quality material') & (dfv['precaria'] == 'Hazardous'), 'v'] = 0.3
+            #dfv.loc[(dfv['matpreca'] == 'Low-quality material') & (dfv['precaria'] == 'Not hazardous'), 'v'] = 0.3
+            #dfv.loc[(dfv['matpreca'] == 'Non low-quality material') & (dfv['precaria'] == 'Hazardous'), 'v'] = 0.3
+            #dfv.loc[(dfv['matpreca'] == 'Non low-quality material') & (dfv['precaria'] == 'Not hazardous'), 'v'] = 0.1
             v_hh = dfv.groupby(['id'])['v'].sum()
             # if not provided set to central value, 623 hh
             v_hh.loc[v_hh == 0.0] = 0.4
             # v_hh.value_counts()
             dfout = dfout.join(v_hh)
+            dfout['isprecarious'] = 0
+            dfout.loc[dfout['v']>0.5, ['isprecarious']] = 1
 
             ## add materials for future use
             dfv = dfv[['id', 'HH_B16A', 'HH_C01', 'HH_C02', 'HH_C03']].groupby('id').first()
@@ -1472,11 +1833,15 @@ def load_survey_data(myC):
         # [economy,'province','hhid','region','pcwgt','aewgt','hhwgt','code','np','score','v','c','pcsoc','social','c_5','hhsize',
                         # 'hhsize_ae','gamma_SP','k','quintile','ispoor','pcinc','aeinc','pcexp','pov_line','SP_FAP','SP_CPP','SP_SPS','nOlds',
                         # 'has_ew','SP_PBS','SP_FNPF','SPP_core','SPP_add','axfin','pcsamurdhi','gsp_samurdhi','frac_remittance','N_children']
+    else:
+        print('country not implemented')
 
     ## Assign weighted household consumption to quintiles within each province
     print('Finding hh quintiles')
     if myC == 'HT':
         df['quintile'] = df.groupby(economy)['c'].transform(lambda x: pd.qcut(x, 5, range(1,6)))
+    elif myC == 'LC':
+        print('already loaded quintile for LC')
     else:
         listofquintiles = np.arange(0.20, 1.01, 0.20)
         economy = df.index.names[0]
@@ -1489,13 +1854,15 @@ def load_survey_data(myC):
     print('Finding hh deciles')
     if myC == 'HT':
         df['decile'] = df.groupby(economy)['c'].transform(lambda x: pd.qcut(x, 10, range(1,11)))
+    elif myC == 'LC':
+        print('already loaded deciles for LC')
     else:
         listofdeciles = np.arange(0.10, 1.01, 0.10)
         df = df.reset_index().groupby(economy,sort=True).apply(lambda x:match_percentiles(x,perc_with_spline(reshape_data(x.c),reshape_data(x.pcwgt),listofdeciles),'decile'))
         # drop extraneous columns
         df.drop([icol for icol in ['level_0','index','pctle_05','pctle_05_nat'] if icol in df.columns],axis=1,inplace=True)
 
-    # Last thing: however 'c' was set (income or consumption), pcsoc can't be higher than 0.99*that!
+    ## Last thing: however 'c' was set (income or consumption), pcsoc can't be higher than 0.99*that!
     df['pcsoc'] = df['pcsoc'].clip(upper=0.99*df['c'])
 
     if myC == 'PH':
@@ -1663,6 +2030,7 @@ def get_hazard_df(myC, economy, agg_or_occ='Occ', rm_overlap=False, special_even
         # rel_tc should be the frac_destroyed
         rel_losses['total_losses_tc'] = rel_losses['rel_tc'] * rel_losses['gdp_pc_prov']
         rel_losses['total_losses_eq'] = rel_losses['rel_eq'] * rel_losses['gdp_pc_prov']
+        #todo: multiply above by the percent that are public
         rel_losses['percent_public_tc'] = rel_losses['H1WIND_EXP'] / (rel_losses['H1WIND_EXP'] + rel_losses['gdp_pc_prov'])
         rel_losses['percent_public_eq'] = rel_losses['H1EQ_EXP'] / (rel_losses['H1EQ_EXP'] + rel_losses['gdp_pc_prov'])
 
@@ -1678,7 +2046,7 @@ def get_hazard_df(myC, economy, agg_or_occ='Occ', rm_overlap=False, special_even
         df_haz = pd.concat([df_haz_eq, df_haz_tc])
         ## set return periods and events and add to output dataframe
         # inverse probability that even occurs
-        rp = [10, 1000]
+        rp = [1, 10]
         # only use one rp for now - this is the only data we have for the losses and exposures
         df_haz['rp'] = rp[0]
 
@@ -2212,6 +2580,7 @@ def get_avg_prod(myC):
     elif myC == 'MW': return 0.253076569219416
     elif myC == 'RO': return (277174.8438/1035207.75)
     elif myC == 'BO': return 0.4218342
+    elif myC == 'LC': return (1651.167847/1851.553101)
     elif myC == 'HT': return (16389.92/123287.91)
     #for HT in 2012 (16389.92/123287.91) cdgpo/cn - (17988.44921875/158113.875) is more recent value from 2017
     #dy_over_dk so y is total factor of productivity, in disruption after earthquake - in theory the dy should be a

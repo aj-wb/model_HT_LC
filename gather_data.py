@@ -436,7 +436,6 @@ print('Final size of cat_info (households,features):', cat_info.shape)
 # Data by hazard, return period (rp), fa or fraction destroyed      #
 # Fraction destroyed for HT not true for all other countries        #
 #####################################################################
-
 special_event = None
 
 ## Brings in hazard data, usually via excel or shape files, by country
@@ -757,9 +756,8 @@ hazard_renorm.to_csv('../inputs/'+myCountry+'/hazard/tmp/renorm_out.csv')
 #####################################################################
 # Get optimal reconstruction rate                                   #
 #                                                                   #
-#####################################################################
-########################################################
-# Get optimal reconstruction rate
+#####################################################################211756
+ 
 _pi = float(df['avg_prod_k'].mean())
 _rho = float(df['rho'].mean())
 
